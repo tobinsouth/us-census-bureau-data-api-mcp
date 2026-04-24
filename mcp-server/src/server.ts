@@ -61,11 +61,15 @@ export class MCPServer {
 
     set(ListToolsRequestSchema, async () => this.getTools())
     set(CallToolRequestSchema, async (request) =>
-      this.handleToolCall(request as { params: { name: string; arguments?: unknown } }),
+      this.handleToolCall(
+        request as { params: { name: string; arguments?: unknown } },
+      ),
     )
     set(ListPromptsRequestSchema, async () => this.getPrompts())
     set(GetPromptRequestSchema, async (request) =>
-      this.handleGetPrompt(request as { params: { name: string; arguments?: unknown } }),
+      this.handleGetPrompt(
+        request as { params: { name: string; arguments?: unknown } },
+      ),
     )
     set(ListResourcesRequestSchema, async () => this.getResources())
     set(ReadResourceRequestSchema, async (request) =>

@@ -24,11 +24,7 @@ function parseIpv6(ip: string): bigint | null {
   const fill = 8 - head.length - tail.length
   if (halves.length === 1 && head.length !== 8) return null
   if (halves.length === 2 && fill < 0) return null
-  const groups = [
-    ...head,
-    ...Array(Math.max(0, fill)).fill('0'),
-    ...tail,
-  ]
+  const groups = [...head, ...Array(Math.max(0, fill)).fill('0'), ...tail]
   if (groups.length !== 8) return null
   let out = 0n
   for (const g of groups) {
@@ -101,7 +97,10 @@ const OTHER_REFILL = 2
 
 const OTHER_MAX_TRACKED = 10_000
 
-const anthropicBucket: Bucket = { tokens: ANTHROPIC_CAP, lastRefill: Date.now() }
+const anthropicBucket: Bucket = {
+  tokens: ANTHROPIC_CAP,
+  lastRefill: Date.now(),
+}
 const otherBuckets = new Map<string, Bucket>()
 
 export type RateTier = 'anthropic' | 'other'
@@ -125,15 +124,18 @@ function evictIfFull(): void {
 
 function send429(res: Response, retryAfterMs: number): void {
   const retrySec = Math.max(1, Math.ceil(retryAfterMs / 1000))
-  res.status(429).set('Retry-After', String(retrySec)).json({
-    jsonrpc: '2.0',
-    error: {
-      code: -32003,
-      message: 'Rate limit exceeded',
-      data: { retryAfterMs },
-    },
-    id: null,
-  })
+  res
+    .status(429)
+    .set('Retry-After', String(retrySec))
+    .json({
+      jsonrpc: '2.0',
+      error: {
+        code: -32003,
+        message: 'Rate limit exceeded',
+        data: { retryAfterMs },
+      },
+      id: null,
+    })
 }
 
 export function rateLimit() {

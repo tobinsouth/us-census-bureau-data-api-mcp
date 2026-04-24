@@ -10,7 +10,10 @@ const PAD_SUFFIX = ' '
 export const DEFAULT_TRIGRAM_THRESHOLD = 0.3
 
 export function trigrams(input: string): Set<string> {
-  const normalized = input.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  const normalized = input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
   const grams = new Set<string>()
   if (!normalized) return grams
   for (const word of normalized.split(/\s+/)) {
@@ -33,7 +36,11 @@ export function similarity(a: string, b: string): number {
   return union === 0 ? 0 : intersection / union
 }
 
-export function matches(a: string, b: string, threshold = DEFAULT_TRIGRAM_THRESHOLD): boolean {
+export function matches(
+  a: string,
+  b: string,
+  threshold = DEFAULT_TRIGRAM_THRESHOLD,
+): boolean {
   return similarity(a, b) >= threshold
 }
 

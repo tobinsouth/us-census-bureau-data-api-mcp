@@ -5,14 +5,17 @@
   "scripts": {
     "build": "tsc && shx chmod +x dist/*.js || true",
     "build:sqlite": "tsx scripts/build-sqlite.ts",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "check": "npm run typecheck && npm run lint && npm run format:check",
+    "format": "prettier --write \"src/**/*.{ts,html,css}\" \"scripts/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.{ts,html,css}\" \"scripts/**/*.ts\" \"tests/**/*.ts\"",
     "inspect": "npx @modelcontextprotocol/inspector node dist/index.js",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
     "prepare": "npm run build",
     "start:http": "node dist/http.js",
     "test": "vitest --printConsoleTrace=true --silent=false",
     "test:coverage": "vitest --coverage",
+    "typecheck": "tsc --noEmit",
     "watch": "tsc --watch"
   },
   "dependencies": {

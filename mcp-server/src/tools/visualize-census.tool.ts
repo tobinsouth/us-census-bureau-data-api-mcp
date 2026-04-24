@@ -48,9 +48,11 @@ const InteractiveSchema = z.object({
           'Message template sent to the conversation when a region is clicked. Supports {column} placeholders (e.g. "Tell me about {NAME} ({__fips})").',
         ),
       z.object({
-        updateContext: z.record(z.string(), z.unknown()).describe(
-          'Sent to updateModelContext instead of as a visible message.',
-        ),
+        updateContext: z
+          .record(z.string(), z.unknown())
+          .describe(
+            'Sent to updateModelContext instead of as a visible message.',
+          ),
       }),
     ])
     .optional(),
@@ -68,9 +70,12 @@ export const VisualizeCensusInputSchema = z
     fetch: FetchAggregateDataToolSchema.optional().describe(
       'Census API request — same shape as fetch-aggregate-data. Omit when providing `data` inline.',
     ),
-    data: z.array(DataRowSchema).optional().describe(
-      'Pre-fetched rows (array of {column: value} objects). Omit when providing `fetch`.',
-    ),
+    data: z
+      .array(DataRowSchema)
+      .optional()
+      .describe(
+        'Pre-fetched rows (array of {column: value} objects). Omit when providing `fetch`.',
+      ),
     spec: z
       .record(z.string(), z.unknown())
       .describe(
@@ -98,7 +103,8 @@ const VisualizeCensusJsonSchema = {
     },
     data: {
       type: 'array',
-      description: 'Pre-fetched rows (array of objects). Omit when using `fetch`.',
+      description:
+        'Pre-fetched rows (array of objects). Omit when using `fetch`.',
       items: { type: 'object' },
     },
     spec: {
@@ -109,7 +115,10 @@ const VisualizeCensusJsonSchema = {
     geo: {
       type: 'object',
       properties: {
-        level: { type: 'string', enum: ['states', 'counties', 'state', 'county'] },
+        level: {
+          type: 'string',
+          enum: ['states', 'counties', 'state', 'county'],
+        },
         fipsField: { type: 'string' },
       },
       required: ['level'],
@@ -171,7 +180,10 @@ export class VisualizeCensusTool extends BaseTool<VisualizeCensusArgs> {
     try {
       const { rows: rawRows, sourceUrl } = await this.loadRows(args, apiKey)
       const normalizedGeo = args.geo
-        ? { level: normalizeLevel(args.geo.level), fipsField: args.geo.fipsField }
+        ? {
+            level: normalizeLevel(args.geo.level),
+            fipsField: args.geo.fipsField,
+          }
         : undefined
       const normalized = normalizeRows(rawRows, normalizedGeo)
       const strippedSpec = stripDatasetFromSpec(args.spec)
@@ -209,7 +221,9 @@ export class VisualizeCensusTool extends BaseTool<VisualizeCensusArgs> {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unknown error occurred'
-      return this.createErrorResponse(`Failed to prepare visualization: ${message}`)
+      return this.createErrorResponse(
+        `Failed to prepare visualization: ${message}`,
+      )
     }
   }
 
@@ -227,7 +241,11 @@ export class VisualizeCensusTool extends BaseTool<VisualizeCensusArgs> {
       throw new Error('CENSUS_API_KEY is not set.')
     }
     const fetchArgs = args.fetch as TableArgs
-    const { url: sourceUrl, headers, rows } = await censusFetch(fetchArgs, apiKey)
+    const {
+      url: sourceUrl,
+      headers,
+      rows,
+    } = await censusFetch(fetchArgs, apiKey)
     const objects = rows.map((row) => {
       const obj: Record<string, unknown> = {}
       headers.forEach((h, i) => {
@@ -240,7 +258,11 @@ export class VisualizeCensusTool extends BaseTool<VisualizeCensusArgs> {
 }
 
 function buildTextSummary(
-  payload: { title: string; rows: Record<string, unknown>[]; spec: Record<string, unknown> },
+  payload: {
+    title: string
+    rows: Record<string, unknown>[]
+    spec: Record<string, unknown>
+  },
   bytes: number,
 ): string {
   const rows = payload.rows.length
@@ -346,8 +368,12 @@ function deriveFips(
   }
 
   // counties compose from parts (state+county).
-  const state = digits(row.state ?? row.STATE).padStart(2, '0').slice(-2)
-  const county = digits(row.county ?? row.COUNTY).padStart(3, '0').slice(-3)
+  const state = digits(row.state ?? row.STATE)
+    .padStart(2, '0')
+    .slice(-2)
+  const county = digits(row.county ?? row.COUNTY)
+    .padStart(3, '0')
+    .slice(-3)
   if (
     state.length === 2 &&
     county.length === 3 &&
@@ -461,7 +487,8 @@ function collectReferencedColumns(spec: unknown): Set<string> {
           out.add(v)
         } else if (k === 'as') {
           if (typeof v === 'string') out.add(v)
-          if (Array.isArray(v)) for (const s of v) if (typeof s === 'string') out.add(s)
+          if (Array.isArray(v))
+            for (const s of v) if (typeof s === 'string') out.add(s)
         }
         walk(v)
       }

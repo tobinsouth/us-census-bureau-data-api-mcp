@@ -65,7 +65,9 @@ describe('ResolveGeographyFipsTool', () => {
       .mockReset()
       .mockResolvedValue([{ code: '160', name: 'Place' }])
     mockMetadata.searchGeographies.mockReset().mockResolvedValue([])
-    mockMetadata.searchGeographiesBySummaryLevel.mockReset().mockResolvedValue([])
+    mockMetadata.searchGeographiesBySummaryLevel
+      .mockReset()
+      .mockResolvedValue([])
 
     tool = new ResolveGeographyFipsTool()
   })
@@ -139,10 +141,9 @@ describe('ResolveGeographyFipsTool', () => {
         expect(mockMetadata.searchSummaryLevels).toHaveBeenCalledWith(
           summaryLevelArgs.summary_level,
         )
-        expect(mockMetadata.searchGeographiesBySummaryLevel).toHaveBeenCalledWith(
-          summaryLevelArgs.geography_name,
-          '160',
-        )
+        expect(
+          mockMetadata.searchGeographiesBySummaryLevel,
+        ).toHaveBeenCalledWith(summaryLevelArgs.geography_name, '160')
       })
     })
   })

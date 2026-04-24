@@ -2,11 +2,7 @@ import Database from 'better-sqlite3'
 import type { Database as SqliteDatabase, Statement } from 'better-sqlite3'
 
 import { DatabaseService } from './database.service.js'
-import {
-  DEFAULT_TRIGRAM_THRESHOLD,
-  similarity,
-  tokenize,
-} from './trigram.js'
+import { DEFAULT_TRIGRAM_THRESHOLD, similarity, tokenize } from './trigram.js'
 import { DataTableSearchResultRow } from '../types/data-table.types.js'
 import { GeographySearchResultRow } from '../types/geography.types.js'
 import { SummaryLevelRow } from '../types/summary-level.types.js'
@@ -26,14 +22,22 @@ export interface SearchDataTablesParams {
 export interface MetadataService {
   healthCheck(): Promise<boolean>
   getSummaryLevels(): Promise<SummaryLevelRow[]>
-  searchSummaryLevels(query: string, limit?: number): Promise<SummaryLevelMatch[]>
-  searchGeographies(query: string, limit?: number): Promise<GeographySearchResultRow[]>
+  searchSummaryLevels(
+    query: string,
+    limit?: number,
+  ): Promise<SummaryLevelMatch[]>
+  searchGeographies(
+    query: string,
+    limit?: number,
+  ): Promise<GeographySearchResultRow[]>
   searchGeographiesBySummaryLevel(
     query: string,
     summaryLevelCode: string,
     limit?: number,
   ): Promise<GeographySearchResultRow[]>
-  searchDataTables(params: SearchDataTablesParams): Promise<DataTableSearchResultRow[]>
+  searchDataTables(
+    params: SearchDataTablesParams,
+  ): Promise<DataTableSearchResultRow[]>
   close?(): void | Promise<void>
 }
 
@@ -70,7 +74,10 @@ export class PostgresMetadataService implements MetadataService {
     return result.rows
   }
 
-  async searchSummaryLevels(query: string, limit = 1): Promise<SummaryLevelMatch[]> {
+  async searchSummaryLevels(
+    query: string,
+    limit = 1,
+  ): Promise<SummaryLevelMatch[]> {
     const result = await this.db.query<SummaryLevelMatch>(
       `SELECT * FROM search_summary_levels($1, $2)`,
       [query, limit],
@@ -78,7 +85,10 @@ export class PostgresMetadataService implements MetadataService {
     return result.rows
   }
 
-  async searchGeographies(query: string, limit = 10): Promise<GeographySearchResultRow[]> {
+  async searchGeographies(
+    query: string,
+    limit = 10,
+  ): Promise<GeographySearchResultRow[]> {
     const result = await this.db.query<GeographySearchResultRow>(
       `SELECT * FROM search_geographies($1, $2)`,
       [query, limit],
@@ -98,7 +108,9 @@ export class PostgresMetadataService implements MetadataService {
     return result.rows
   }
 
-  async searchDataTables(params: SearchDataTablesParams): Promise<DataTableSearchResultRow[]> {
+  async searchDataTables(
+    params: SearchDataTablesParams,
+  ): Promise<DataTableSearchResultRow[]> {
     const {
       data_table_id = null,
       label_query = null,
@@ -174,7 +186,9 @@ export class SqliteMetadataService implements MetadataService {
 
   async healthCheck(): Promise<boolean> {
     try {
-      const row = this.db.prepare('SELECT 1 AS health').get() as { health: number } | undefined
+      const row = this.db.prepare('SELECT 1 AS health').get() as
+        | { health: number }
+        | undefined
       return row?.health === 1
     } catch {
       return false
@@ -202,10 +216,15 @@ export class SqliteMetadataService implements MetadataService {
        FROM summary_levels
        ORDER BY code`,
     )
-    return this.stmtAllSummaryLevels.all().map((r) => this.coerceSummaryLevel(r))
+    return this.stmtAllSummaryLevels
+      .all()
+      .map((r) => this.coerceSummaryLevel(r))
   }
 
-  async searchSummaryLevels(query: string, limit = 1): Promise<SummaryLevelMatch[]> {
+  async searchSummaryLevels(
+    query: string,
+    limit = 1,
+  ): Promise<SummaryLevelMatch[]> {
     const padded = query.trim().padStart(3, '0')
     const normalized = query.trim().toLowerCase()
     this.stmtSummaryLevels ??= this.db.prepare<[], SqliteSummaryLevelRow>(
@@ -231,7 +250,9 @@ export class SqliteMetadataService implements MetadataService {
       return { row, score, rank }
     })
 
-    const filtered = scored.filter((s) => s.rank < 3 || s.score > DEFAULT_TRIGRAM_THRESHOLD)
+    const filtered = scored.filter(
+      (s) => s.rank < 3 || s.score > DEFAULT_TRIGRAM_THRESHOLD,
+    )
     filtered.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score
       return a.rank - b.rank
@@ -243,7 +264,10 @@ export class SqliteMetadataService implements MetadataService {
     }))
   }
 
-  async searchGeographies(query: string, limit = 10): Promise<GeographySearchResultRow[]> {
+  async searchGeographies(
+    query: string,
+    limit = 10,
+  ): Promise<GeographySearchResultRow[]> {
     const candidates = this.fetchGeographyCandidates(query)
     return this.rankGeographies(candidates, query, limit, true)
   }
@@ -253,7 +277,10 @@ export class SqliteMetadataService implements MetadataService {
     summaryLevelCode: string,
     limit = 10,
   ): Promise<GeographySearchResultRow[]> {
-    this.stmtGeographiesByLevel ??= this.db.prepare<[string], SqliteGeographyRow>(
+    this.stmtGeographiesByLevel ??= this.db.prepare<
+      [string],
+      SqliteGeographyRow
+    >(
       `SELECT g.id, g.name, g.summary_level_code, g.latitude, g.longitude, g.for_param, g.in_param,
               sl.name AS summary_level_name, sl.hierarchy_level
        FROM geographies g
@@ -289,7 +316,8 @@ export class SqliteMetadataService implements MetadataService {
        LEFT JOIN summary_levels sl ON sl.code = g.summary_level_code
        WHERE lower(g.name) LIKE ?`,
     )
-    for (const row of likeStmt.all(`%${query.toLowerCase()}%`)) byId.set(row.id, row)
+    for (const row of likeStmt.all(`%${query.toLowerCase()}%`))
+      byId.set(row.id, row)
 
     if (byId.size === 0) {
       this.stmtAllGeographies ??= this.db.prepare<[], SqliteGeographyRow>(
@@ -321,11 +349,21 @@ export class SqliteMetadataService implements MetadataService {
         const weightedScore = weighted ? sim + (1 - hierarchy / 100) : sim
         return { row, sim, weightedScore }
       })
-      .filter((s): s is { row: SqliteGeographyRow; sim: number; weightedScore: number } => s !== null)
+      .filter(
+        (
+          s,
+        ): s is {
+          row: SqliteGeographyRow
+          sim: number
+          weightedScore: number
+        } => s !== null,
+      )
 
     scored.sort((a, b) => {
-      if (b.weightedScore !== a.weightedScore) return b.weightedScore - a.weightedScore
-      if (a.row.name.length !== b.row.name.length) return a.row.name.length - b.row.name.length
+      if (b.weightedScore !== a.weightedScore)
+        return b.weightedScore - a.weightedScore
+      if (a.row.name.length !== b.row.name.length)
+        return a.row.name.length - b.row.name.length
       return a.row.name.localeCompare(b.row.name)
     })
 
@@ -341,7 +379,9 @@ export class SqliteMetadataService implements MetadataService {
     }))
   }
 
-  async searchDataTables(params: SearchDataTablesParams): Promise<DataTableSearchResultRow[]> {
+  async searchDataTables(
+    params: SearchDataTablesParams,
+  ): Promise<DataTableSearchResultRow[]> {
     const {
       data_table_id = null,
       label_query = null,

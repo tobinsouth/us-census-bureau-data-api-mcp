@@ -1,11 +1,18 @@
+import { resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
 import { loadEnv } from 'vite'
+
+// `.env` lives at the repo root (one level up); fall back to mcp-server-local
+// overrides when present. Merge order: repo root → package dir (latter wins).
+const cwd = process.cwd()
+const envFromRepoRoot = loadEnv('', resolve(cwd, '..'), '')
+const envFromPackage = loadEnv('', cwd, '')
 
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    env: loadEnv('', process.cwd(), ''),
+    env: { ...envFromRepoRoot, ...envFromPackage },
     testTimeout: 10000,
     coverage: {
       reporter: ['text', 'json-summary', 'json'],

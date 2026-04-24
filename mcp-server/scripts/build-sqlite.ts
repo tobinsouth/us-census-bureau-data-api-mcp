@@ -194,7 +194,10 @@ function createSchema(db: Database.Database): void {
   `)
 }
 
-function hierarchyLevel(code: string, parentMap: Map<string, string | null>): number {
+function hierarchyLevel(
+  code: string,
+  parentMap: Map<string, string | null>,
+): number {
   let depth = 0
   let cursor: string | null = code
   const seen = new Set<string>()
@@ -206,7 +209,10 @@ function hierarchyLevel(code: string, parentMap: Map<string, string | null>): nu
   return depth * 10
 }
 
-function seedSummaryLevels(db: Database.Database, rows: SummaryLevelFixture[]): void {
+function seedSummaryLevels(
+  db: Database.Database,
+  rows: SummaryLevelFixture[],
+): void {
   const parentMap = new Map<string, string | null>()
   for (const row of rows) parentMap.set(row.code, row.parent_summary_level)
 
@@ -234,7 +240,8 @@ function seedSummaryLevels(db: Database.Database, rows: SummaryLevelFixture[]): 
       )
     }
     for (const row of items) {
-      if (row.parent_summary_level) linkParent.run(row.parent_summary_level, row.code)
+      if (row.parent_summary_level)
+        linkParent.run(row.parent_summary_level, row.code)
     }
   })
   tx(rows)
@@ -247,9 +254,7 @@ function seedProgramsAndComponents(
   const programInsert = db.prepare(
     `INSERT OR IGNORE INTO programs (label, acronym) VALUES (?, ?)`,
   )
-  const programId = db.prepare(
-    `SELECT id FROM programs WHERE acronym = ?`,
-  )
+  const programId = db.prepare(`SELECT id FROM programs WHERE acronym = ?`)
   const componentInsert = db.prepare(
     `INSERT OR IGNORE INTO components
        (label, component_id, api_endpoint, description, program_id)
@@ -271,26 +276,37 @@ function seedProgramsAndComponents(
   tx(rows)
 }
 
-function seedSampleGeographies(db: Database.Database, rows: SampleGeography[]): void {
+function seedSampleGeographies(
+  db: Database.Database,
+  rows: SampleGeography[],
+): void {
   const stmt = db.prepare(
     `INSERT INTO geographies (name, summary_level_code, latitude, longitude, for_param, in_param)
      VALUES (?, ?, ?, ?, ?, ?)`,
   )
   const tx = db.transaction((items: SampleGeography[]) => {
     for (const row of items) {
-      stmt.run(row.name, row.summary_level_code, row.latitude, row.longitude, row.for_param, row.in_param)
+      stmt.run(
+        row.name,
+        row.summary_level_code,
+        row.latitude,
+        row.longitude,
+        row.for_param,
+        row.in_param,
+      )
     }
   })
   tx(rows)
 }
 
-function seedSampleDataTables(db: Database.Database, rows: SampleDataTable[]): void {
+function seedSampleDataTables(
+  db: Database.Database,
+  rows: SampleDataTable[],
+): void {
   const componentByEndpoint = db.prepare(
     `SELECT id FROM components WHERE api_endpoint = ?`,
   )
-  const yearUpsert = db.prepare(
-    `INSERT OR IGNORE INTO years (year) VALUES (?)`,
-  )
+  const yearUpsert = db.prepare(`INSERT OR IGNORE INTO years (year) VALUES (?)`)
   const yearSelect = db.prepare(`SELECT id FROM years WHERE year = ?`)
   const datasetUpsert = db.prepare(
     `INSERT INTO datasets (api_endpoint, year_id, component_id) VALUES (?, ?, ?)`,
@@ -311,7 +327,8 @@ function seedSampleDataTables(db: Database.Database, rows: SampleDataTable[]): v
   const tx = db.transaction((items: SampleDataTable[]) => {
     for (const table of items) {
       dataTableUpsert.run(table.data_table_id, table.label)
-      const dtId = (dataTableSelect.get(table.data_table_id) as { id: number }).id
+      const dtId = (dataTableSelect.get(table.data_table_id) as { id: number })
+        .id
 
       for (const ds of table.datasets) {
         yearUpsert.run(ds.year)
@@ -517,7 +534,9 @@ function buildFromFixture(outPath: string, mcpDbDataDir: string): void {
       resolve(mcpDbDataDir, 'components-programs.csv'),
       'utf8',
     )
-    const components = parseCsv(componentsCsv) as unknown as ComponentFixtureRow[]
+    const components = parseCsv(
+      componentsCsv,
+    ) as unknown as ComponentFixtureRow[]
     seedProgramsAndComponents(db, components)
 
     seedSampleGeographies(db, sampleGeographies())

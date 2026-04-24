@@ -151,7 +151,8 @@ export async function censusFetch(
     return { url: redactedUrl, headers: [], rows: [], cached: false }
   }
   cacheSet(key, payload)
-  if (payload.length === 0) return { url: redactedUrl, headers: [], rows: [], cached: false }
+  if (payload.length === 0)
+    return { url: redactedUrl, headers: [], rows: [], cached: false }
   const [headers, ...rows] = payload
   return { url: redactedUrl, headers, rows, cached: false }
 }

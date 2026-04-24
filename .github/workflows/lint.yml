@@ -31,7 +31,15 @@ jobs:
       - name: Run ESLint in MCP Server
         working-directory: ./mcp-server
         run: npm run lint
-  
+
+      - name: Check formatting in MCP Server
+        working-directory: ./mcp-server
+        run: npm run format:check
+
+      - name: Typecheck MCP Server
+        working-directory: ./mcp-server
+        run: npm run typecheck
+
   lint-db:
     name: Lint MCP DB
     runs-on: ubuntu-latest
