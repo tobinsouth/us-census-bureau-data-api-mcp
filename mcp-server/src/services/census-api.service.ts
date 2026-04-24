@@ -49,12 +49,21 @@ export function buildCensusUrl(args: TableArgs, apiKey: string): string {
   return `${baseUrl}?${query.toString()}`
 }
 
-function redactApiKey(url: string, apiKey: string): string {
+// URLSearchParams encodes the key, so it may land in the URL either encoded
+// or plain depending on who built the URL. Strip both shapes.
+function stripKeyParam(
+  url: string,
+  apiKey: string,
+  replacement: string,
+): string {
   if (!apiKey) return url
-  // The key can arrive URL-encoded (URLSearchParams encodes it) or plain; redact both shapes.
   return url
-    .replaceAll(`key=${encodeURIComponent(apiKey)}`, 'key=REDACTED')
-    .replaceAll(`key=${apiKey}`, 'key=REDACTED')
+    .replaceAll(`key=${encodeURIComponent(apiKey)}`, `key=${replacement}`)
+    .replaceAll(`key=${apiKey}`, `key=${replacement}`)
+}
+
+function redactApiKey(url: string, apiKey: string): string {
+  return stripKeyParam(url, apiKey, 'REDACTED')
 }
 
 // --- LRU cache + rolling-window rate budget -------------------------------
@@ -116,10 +125,8 @@ function cacheSet(key: string, payload: string[][]): void {
 }
 
 function cacheKey(urlWithKey: string, apiKey: string): string {
-  // Strip the API key before hashing — cache keys must never contain it.
-  return urlWithKey
-    .replaceAll(`key=${encodeURIComponent(apiKey)}`, 'key=')
-    .replaceAll(`key=${apiKey}`, 'key=')
+  // Cache keys must never contain the API key.
+  return stripKeyParam(urlWithKey, apiKey, '')
 }
 
 export async function censusFetch(

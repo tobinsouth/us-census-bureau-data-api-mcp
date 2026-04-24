@@ -192,7 +192,7 @@ export class VisualizeCensusTool extends BaseTool<VisualizeCensusArgs> {
       const truncation = maybePruneRows(
         normalized,
         strippedSpec,
-        normalizedGeo ? { dropNameForGeo: true } : { dropNameForGeo: false },
+        Boolean(normalizedGeo),
       )
 
       const payload = {
@@ -231,7 +231,7 @@ export class VisualizeCensusTool extends BaseTool<VisualizeCensusArgs> {
     apiKey?: string,
   ): Promise<{ rows: Record<string, unknown>[]; sourceUrl?: string }> {
     if (args.data) {
-      return { rows: args.data as Record<string, unknown>[] }
+      return { rows: args.data }
     }
     if (!args.fetch) {
       throw new Error('Provide exactly one of `fetch` or `data`.')
@@ -409,7 +409,7 @@ interface PruneResult {
 function maybePruneRows(
   rows: Record<string, unknown>[],
   spec: Record<string, unknown>,
-  opts: { dropNameForGeo: boolean },
+  dropNameForGeo: boolean,
 ): PruneResult {
   const initialJson = JSON.stringify(rows)
   const initialBytes = Buffer.byteLength(initialJson, 'utf8')
@@ -436,7 +436,7 @@ function maybePruneRows(
   if (keep.size === 0) {
     for (const col of actual) keep.add(col)
   }
-  if (opts.dropNameForGeo && keep.has('NAME')) {
+  if (dropNameForGeo && keep.has('NAME')) {
     keep.delete('NAME')
     dropColumns.push('NAME')
   }

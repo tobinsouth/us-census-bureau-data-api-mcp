@@ -40,7 +40,7 @@ function parseIpv6(ip: string): bigint | null {
 //   2607:6bc0::/48     (IPv6)
 
 const ANTHROPIC_V4_NET = parseIpv4('160.79.104.0')!
-const ANTHROPIC_V4_MASK = ((0xffffffff << (32 - 21)) >>> 0) >>> 0
+const ANTHROPIC_V4_MASK = (0xffffffff << (32 - 21)) >>> 0
 const ANTHROPIC_V6_NET = parseIpv6('2607:6bc0::')!
 const ANTHROPIC_V6_SHIFT = BigInt(128 - 48)
 

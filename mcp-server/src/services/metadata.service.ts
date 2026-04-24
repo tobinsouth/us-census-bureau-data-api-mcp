@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3'
 import type { Database as SqliteDatabase, Statement } from 'better-sqlite3'
 
-import { DatabaseService } from './database.service.js'
 import { DEFAULT_TRIGRAM_THRESHOLD, similarity, tokenize } from './trigram.js'
 import { DataTableSearchResultRow } from '../types/data-table.types.js'
 import { GeographySearchResultRow } from '../types/geography.types.js'
@@ -39,94 +38,6 @@ export interface MetadataService {
     params: SearchDataTablesParams,
   ): Promise<DataTableSearchResultRow[]>
   close?(): void | Promise<void>
-}
-
-// --- PostgreSQL adapter ---------------------------------------------------
-// Wraps the existing SQL functions so the PG integration tests exercise the
-// same code paths they always did.
-
-export class PostgresMetadataService implements MetadataService {
-  private db: DatabaseService
-
-  constructor(db: DatabaseService = DatabaseService.getInstance()) {
-    this.db = db
-  }
-
-  healthCheck(): Promise<boolean> {
-    return this.db.healthCheck()
-  }
-
-  async getSummaryLevels(): Promise<SummaryLevelRow[]> {
-    const result = await this.db.query<SummaryLevelRow>(`
-      SELECT
-        id,
-        name,
-        description,
-        get_variable,
-        query_name,
-        on_spine,
-        code,
-        parent_summary_level,
-        parent_summary_level_id
-      FROM summary_levels
-      ORDER BY code
-    `)
-    return result.rows
-  }
-
-  async searchSummaryLevels(
-    query: string,
-    limit = 1,
-  ): Promise<SummaryLevelMatch[]> {
-    const result = await this.db.query<SummaryLevelMatch>(
-      `SELECT * FROM search_summary_levels($1, $2)`,
-      [query, limit],
-    )
-    return result.rows
-  }
-
-  async searchGeographies(
-    query: string,
-    limit = 10,
-  ): Promise<GeographySearchResultRow[]> {
-    const result = await this.db.query<GeographySearchResultRow>(
-      `SELECT * FROM search_geographies($1, $2)`,
-      [query, limit],
-    )
-    return result.rows
-  }
-
-  async searchGeographiesBySummaryLevel(
-    query: string,
-    summaryLevelCode: string,
-    limit = 10,
-  ): Promise<GeographySearchResultRow[]> {
-    const result = await this.db.query<GeographySearchResultRow>(
-      `SELECT * FROM search_geographies_by_summary_level($1, $2, $3)`,
-      [query, summaryLevelCode, limit],
-    )
-    return result.rows
-  }
-
-  async searchDataTables(
-    params: SearchDataTablesParams,
-  ): Promise<DataTableSearchResultRow[]> {
-    const {
-      data_table_id = null,
-      label_query = null,
-      api_endpoint = null,
-      limit = 20,
-    } = params
-    const result = await this.db.query<DataTableSearchResultRow>(
-      `SELECT * FROM search_data_tables($1, $2, $3, $4)`,
-      [data_table_id, label_query, api_endpoint, limit],
-    )
-    return result.rows
-  }
-
-  async close(): Promise<void> {
-    await this.db.cleanup()
-  }
 }
 
 // --- SQLite adapter -------------------------------------------------------
@@ -176,7 +87,6 @@ export class SqliteMetadataService implements MetadataService {
   private stmtAllSummaryLevels?: Statement<[], SqliteSummaryLevelRow>
   private stmtGeographiesByLevel?: Statement<[string], SqliteGeographyRow>
   private stmtAllGeographies?: Statement<[], SqliteGeographyRow>
-  private stmtAllDataTables?: Statement<[], SqliteDataTableRow>
 
   constructor(path: string) {
     this.db = new Database(path, { readonly: true, fileMustExist: true })
@@ -510,32 +420,19 @@ export class SqliteMetadataService implements MetadataService {
   }
 }
 
-// --- Selector / singleton ------------------------------------------------
+// --- Singleton accessor ---------------------------------------------------
+// http.ts hard-pins a SqliteMetadataService via setMetadataService() before
+// any tool is constructed. Tests call setMetadataService() with a mock.
+// There is no env-driven fallback — the caller must register one.
 
 let cached: MetadataService | undefined
 
-function createFromEnv(): MetadataService {
-  const backend = process.env.METADATA_BACKEND?.toLowerCase()
-  const sqlitePath = process.env.SQLITE_PATH
-  const databaseUrl = process.env.DATABASE_URL
-
-  if (backend === 'sqlite' || (!backend && sqlitePath)) {
-    if (!sqlitePath) {
-      throw new Error('SQLITE_PATH must be set when METADATA_BACKEND=sqlite')
-    }
-    return new SqliteMetadataService(sqlitePath)
-  }
-
-  if (backend === 'postgres' || (!backend && databaseUrl)) {
-    return new PostgresMetadataService()
-  }
-
-  // Legacy default: Postgres via DatabaseService singleton.
-  return new PostgresMetadataService()
-}
-
 export function getMetadataService(): MetadataService {
-  if (!cached) cached = createFromEnv()
+  if (!cached) {
+    throw new Error(
+      'No MetadataService registered. Call setMetadataService() from the entrypoint before constructing any tool.',
+    )
+  }
   return cached
 }
 
