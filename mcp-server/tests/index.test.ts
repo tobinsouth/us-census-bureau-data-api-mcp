@@ -49,6 +49,15 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
   StdioServerTransport: vi.fn().mockImplementation(() => ({})),
 }))
 
+// SqliteMetadataService tries to open a real file in its constructor; mock it
+// so the stdio entrypoint's setMetadataService() call doesn't touch the disk.
+vi.mock('../src/services/metadata.service.js', () => ({
+  SqliteMetadataService: vi.fn().mockImplementation(() => ({
+    healthCheck: vi.fn().mockResolvedValue(true),
+  })),
+  setMetadataService: vi.fn(),
+}))
+
 describe('main', () => {
   let promptRegistrySpy: MockInstance
   let toolRegistrySpy: MockInstance

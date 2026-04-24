@@ -4,11 +4,8 @@ vi.mock('node-fetch', () => ({
   default: mockFetch,
 }))
 
-// Mock DatabaseService
-vi.mock('../../../src/services/database.service.js', () => ({
-  DatabaseService: {
-    getInstance: vi.fn(),
-  },
+vi.mock('../../../src/services/metadata.service.js', () => ({
+  getMetadataService: vi.fn(),
 }))
 
 import {
@@ -25,7 +22,7 @@ import {
   FetchDatasetGeographyTool,
   toolDescription,
 } from '../../../src/tools/fetch-dataset-geography.tool.js'
-import { DatabaseService } from '../../../src/services/database.service.js'
+import { getMetadataService } from '../../../src/services/metadata.service.js'
 import { SummaryLevelRow } from '../../../src/types/summary-level.types.js'
 import { GeographyJson } from '../../../src/schema/dataset-geography.schema.js'
 import { TextContent } from '@modelcontextprotocol/sdk/types.js'
@@ -40,9 +37,13 @@ import {
 
 describe('FetchDatasetGeographyTool', () => {
   let tool: FetchDatasetGeographyTool
-  let mockDbService: {
+  let mockMetadata: {
     healthCheck: Mock
-    query: Mock
+    getSummaryLevels: Mock
+    searchSummaryLevels: Mock
+    searchGeographies: Mock
+    searchGeographiesBySummaryLevel: Mock
+    searchDataTables: Mock
   }
 
   // Static mock data - created once and reused
@@ -50,7 +51,6 @@ describe('FetchDatasetGeographyTool', () => {
   let mockCensusApiResponse: GeographyJson
 
   beforeAll(() => {
-    // Create mock data once for all tests
     mockSummaryLevels = [
       {
         id: 1,
@@ -96,7 +96,6 @@ describe('FetchDatasetGeographyTool', () => {
       },
     ]
 
-    // Mock Census API response that matches our database data
     mockCensusApiResponse = {
       fips: [
         {
@@ -120,23 +119,24 @@ describe('FetchDatasetGeographyTool', () => {
       ],
     }
 
-    // Setup database service mock once
-    mockDbService = {
+    mockMetadata = {
       healthCheck: vi.fn(),
-      query: vi.fn(),
+      getSummaryLevels: vi.fn(),
+      searchSummaryLevels: vi.fn(),
+      searchGeographies: vi.fn(),
+      searchGeographiesBySummaryLevel: vi.fn(),
+      searchDataTables: vi.fn(),
     }
-    ;(DatabaseService.getInstance as Mock).mockReturnValue(mockDbService)
+    ;(getMetadataService as Mock).mockReturnValue(mockMetadata)
   })
 
   beforeEach(() => {
-    // Reset mock implementations and call history, but reuse the mock objects
-    mockDbService.healthCheck.mockReset().mockResolvedValue(true)
-    mockDbService.query
+    mockMetadata.healthCheck.mockReset().mockResolvedValue(true)
+    mockMetadata.getSummaryLevels
       .mockReset()
-      .mockResolvedValue({ rows: mockSummaryLevels })
+      .mockResolvedValue(mockSummaryLevels)
     mockFetch.mockReset()
 
-    // Create fresh tool instance for each test
     tool = new FetchDatasetGeographyTool()
   })
 
@@ -194,14 +194,11 @@ describe('FetchDatasetGeographyTool', () => {
     })
   })
 
-  describe('Database Integration', () => {
-    it('should return error when database is unhealthy', async () => {
-      mockDbService.healthCheck.mockResolvedValue(false)
+  describe('Metadata Integration', () => {
+    it('should return error when metadata service is unhealthy', async () => {
+      mockMetadata.healthCheck.mockResolvedValue(false)
 
-      const args = {
-        dataset: 'acs/acs1',
-        year: 2022,
-      }
+      const args = { dataset: 'acs/acs1', year: 2022 }
 
       const response = await tool.toolHandler(args, process.env.CENSUS_API_KEY!)
       validateResponseStructure(response)
@@ -210,33 +207,23 @@ describe('FetchDatasetGeographyTool', () => {
       )
     })
 
-    it('should query geography levels from database', async () => {
+    it('should query geography levels through metadata service', async () => {
       mockFetch.mockResolvedValue(createMockResponse(mockCensusApiResponse))
 
-      const args = {
-        dataset: 'acs/acs1',
-        year: 2022,
-      }
+      const args = { dataset: 'acs/acs1', year: 2022 }
 
       await tool.toolHandler(args, process.env.CENSUS_API_KEY!)
 
-      expect(mockDbService.healthCheck).toHaveBeenCalled()
-
-      // Verify the SQL query structure
-      const queryCall = mockDbService.query.mock.calls[0][0]
-      expect(queryCall).toContain('FROM summary_levels')
-      expect(queryCall).toContain('ORDER BY code')
+      expect(mockMetadata.healthCheck).toHaveBeenCalled()
+      expect(mockMetadata.getSummaryLevels).toHaveBeenCalled()
     })
 
-    it('should handle database query errors', async () => {
-      mockDbService.query.mockRejectedValue(
+    it('should handle metadata query errors', async () => {
+      mockMetadata.getSummaryLevels.mockRejectedValue(
         new Error('Database connection failed'),
       )
 
-      const args = {
-        dataset: 'acs/acs1',
-        year: 2022,
-      }
+      const args = { dataset: 'acs/acs1', year: 2022 }
 
       const response = await tool.toolHandler(args, process.env.CENSUS_API_KEY!)
       validateResponseStructure(response)

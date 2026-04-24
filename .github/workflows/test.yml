@@ -1,6 +1,6 @@
 name: MCP Server - Tests
-  
-on: 
+
+on:
   push:
     branches: ['main']
     paths:
@@ -19,56 +19,31 @@ jobs:
     name: Unit & Integration Tests
     runs-on: ubuntu-latest
     environment: test
-    
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: mcp_db_test
-          POSTGRES_USER: mcp_user_test
-          POSTGRES_PASSWORD: mcp_pass_test
-        ports:
-          - 5434:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-      
-      # Set up database (run migrations)
-      - name: Install database dependencies
-        working-directory: ./mcp-db
-        run: npm ci
-        
-      - name: Run database migrations
-        working-directory: ./mcp-db
-        env:
-          DATABASE_URL: postgresql://mcp_user_test:mcp_pass_test@localhost:5434/mcp_db_test
-        run: npm run migrate:up
-        
-      # Test MCP server
+          cache: 'npm'
+          cache-dependency-path: mcp-server/package-lock.json
+
       - name: Install MCP server dependencies
         working-directory: ./mcp-server
         run: npm ci
-        
+
+      - name: Build SQLite metadata fixture
+        working-directory: ./mcp-server
+        run: npm run build:sqlite -- --fixture
+
       - name: Run MCP server tests
         working-directory: ./mcp-server
         env:
           CENSUS_API_KEY: ${{ secrets.CENSUS_API_KEY }}
           NODE_ENV: test
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5434
-          POSTGRES_DB: mcp_db_test
-          POSTGRES_USER: mcp_user_test
-          POSTGRES_PASSWORD: mcp_pass_test
+          SQLITE_PATH: ./census-metadata.sqlite
         run: npm run test -- --reporter=verbose --coverage.enabled true
 
       - name: Report Coverage
@@ -80,7 +55,7 @@ jobs:
 
       - name: Publish Results Badge
         uses: wjervis7/vitest-badge-action@v1.0.0
-        if: success() || failure() # run whether steps succeed or not
+        if: success() || failure()
         continue-on-error: true
         with:
           summary-path: ./mcp-server/coverage/coverage-summary.json
@@ -89,6 +64,6 @@ jobs:
           gist-token: ${{ secrets.MCP_GIST_BADGE_TOKEN }}
           gist-url: https://gist.github.com/luke-keller-census/0589e2c69696f077eef7d6af818a108b
           upload-badge: ${{ github.ref == 'refs/heads/main' }}
-          badge-text: "MCP Server Coverage"
+          badge-text: 'MCP Server Coverage'
           badge-fail-color: D73A49,CB2431
           badge-pass-color: 34D058,28A745

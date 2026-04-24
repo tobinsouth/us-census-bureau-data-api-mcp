@@ -1,14 +1,16 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js'
 
 import { BaseTool } from './base.tool.js'
-import { DatabaseService } from '../services/database.service.js'
+import {
+  getMetadataService,
+  MetadataService,
+} from '../services/metadata.service.js'
 import {
   SearchDataTablesArgs,
   SearchDataTablesArgsSchema,
   SearchDataTablesInputSchema,
 } from '../schema/search-data-tables.schema.js'
 
-import { DataTableSearchResultRow } from '../types/data-table.types.js'
 import { ToolContent } from '../types/base.types.js'
 
 export const toolDescription = `
@@ -18,8 +20,8 @@ export const toolDescription = `
 
   For best results, provide api_endpoint whenever the target survey or dataset is known. Scoping to a specific endpoint significantly improves ranking quality by eliminating cross-survey noise.
 
-  Each result object includes:
-  - data_table_id: maps to the get.group parameter in fetch-aggregate-data
+  Each result object (one per matching table, NOT per dataset entry) includes:
+  - data_table_id: top-level field on the result; pass as the \`get.group\` parameter to fetch-aggregate-data
   - label: canonical label for the data table
   - component: the program and component this table belongs to (e.g., "American Community Survey - ACS 1-Year Estimates")
   - datasets: an object mapping years to arrays of API endpoints in which this table is available
@@ -30,7 +32,13 @@ export class SearchDataTablesTool extends BaseTool<SearchDataTablesArgs> {
   description = toolDescription
   readonly requiresApiKey = false
 
-  private dbService: DatabaseService
+  annotations = {
+    title: 'Search Census data tables',
+    readOnlyHint: true,
+    openWorldHint: false,
+  }
+
+  private metadata: MetadataService
 
   inputSchema: Tool['inputSchema'] =
     SearchDataTablesArgsSchema as unknown as Tool['inputSchema']
@@ -42,42 +50,28 @@ export class SearchDataTablesTool extends BaseTool<SearchDataTablesArgs> {
   constructor() {
     super()
     this.handler = this.handler.bind(this)
-    this.dbService = DatabaseService.getInstance()
-  }
-
-  private async searchDataTables(
-    args: SearchDataTablesArgs,
-  ): Promise<DataTableSearchResultRow[]> {
-    const {
-      data_table_id = null,
-      label_query = null,
-      api_endpoint = null,
-      limit = 20,
-    } = args
-
-    const result = await this.dbService.query<DataTableSearchResultRow>(
-      `SELECT * FROM search_data_tables($1, $2, $3, $4)`,
-      [data_table_id, label_query, api_endpoint, limit],
-    )
-
-    return result.rows
+    this.metadata = getMetadataService()
   }
 
   async toolHandler(
     args: SearchDataTablesArgs,
   ): Promise<{ content: ToolContent[] }> {
     try {
-      // Check database health first
-      const isDbHealthy = await this.dbService.healthCheck()
-      if (!isDbHealthy) {
+      const healthy = await this.metadata.healthCheck()
+      if (!healthy) {
         return this.createErrorResponse(
           'Database connection failed - cannot search data tables.',
         )
       }
 
-      const results = await this.searchDataTables(args)
+      const results = await this.metadata.searchDataTables({
+        data_table_id: args.data_table_id ?? null,
+        label_query: args.label_query ?? null,
+        api_endpoint: args.api_endpoint ?? null,
+        limit: args.limit ?? 20,
+      })
 
-      if (results && results.length > 0) {
+      if (results.length > 0) {
         return {
           content: [
             {
@@ -86,23 +80,23 @@ export class SearchDataTablesTool extends BaseTool<SearchDataTablesArgs> {
             },
           ],
         }
-      } else {
-        const searchTerms = [
-          args.data_table_id && `table ID "${args.data_table_id}"`,
-          args.label_query && `label "${args.label_query}"`,
-          args.api_endpoint && `api endpoint "${args.api_endpoint}"`,
-        ]
-          .filter(Boolean)
-          .join(', ')
+      }
 
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `No data tables found matching ${searchTerms}.`,
-            },
-          ],
-        }
+      const searchTerms = [
+        args.data_table_id && `table ID "${args.data_table_id}"`,
+        args.label_query && `label "${args.label_query}"`,
+        args.api_endpoint && `api endpoint "${args.api_endpoint}"`,
+      ]
+        .filter(Boolean)
+        .join(', ')
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `No data tables found matching ${searchTerms}.`,
+          },
+        ],
       }
     } catch (error) {
       const errorMessage =

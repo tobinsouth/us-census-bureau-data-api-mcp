@@ -1,20 +1,14 @@
-// Global test setup
-import { beforeAll, vi } from 'vitest'
+import { vi } from 'vitest'
 
-beforeAll(() => {
-  // Override DATABASE_URL for Testing Environment
-  process.env.DATABASE_URL =
-    'postgresql://mcp_user_test:mcp_pass_test@localhost:5434/mcp_db_test'
-})
-
-// Mock console methods to avoid noise in tests
+// Silence console.warn/error/info during tests. Tool handlers surface errors
+// through their return value, so reading them off stderr is pure noise.
 global.console = {
   ...console,
-  //log: vi.fn(), //Remove this for robust logging
   error: vi.fn(),
   warn: vi.fn(),
   info: vi.fn(),
 }
 
-// Setup fetch mock globally
+// Default global fetch to a spy — individual tests override it or mock
+// node-fetch directly via vi.mock('node-fetch').
 global.fetch = vi.fn()

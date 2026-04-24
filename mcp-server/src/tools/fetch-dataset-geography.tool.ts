@@ -1,7 +1,10 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js'
 
 import { BaseTool } from './base.tool.js'
-import { DatabaseService } from '../services/database.service.js'
+import {
+  getMetadataService,
+  MetadataService,
+} from '../services/metadata.service.js'
 import {
   FetchDatasetGeographyArgs,
   FetchDatasetGeographyArgsSchema,
@@ -24,7 +27,13 @@ export class FetchDatasetGeographyTool extends BaseTool<FetchDatasetGeographyArg
   description = toolDescription
   readonly requiresApiKey = true
 
-  private dbService: DatabaseService
+  annotations = {
+    title: 'Dataset geography levels',
+    readOnlyHint: true,
+    openWorldHint: true,
+  }
+
+  private metadata: MetadataService
 
   inputSchema: Tool['inputSchema'] =
     FetchDatasetGeographyArgsSchema as Tool['inputSchema']
@@ -36,26 +45,7 @@ export class FetchDatasetGeographyTool extends BaseTool<FetchDatasetGeographyArg
   constructor() {
     super()
     this.handler = this.handler.bind(this)
-    this.dbService = DatabaseService.getInstance()
-  }
-
-  private async getSummaryLevels(): Promise<SummaryLevelRow[]> {
-    const result = await this.dbService.query<SummaryLevelRow>(`
-      SELECT 
-        id,
-        name,
-        description,
-        get_variable,
-        query_name,
-        on_spine,
-        code,
-        parent_summary_level,
-        parent_summary_level_id
-      FROM summary_levels
-      ORDER BY code
-    `)
-
-    return result.rows
+    this.metadata = getMetadataService()
   }
 
   private buildGeographyMetadata(levels: SummaryLevelRow[]): GeographyMetadata {
@@ -183,16 +173,14 @@ export class FetchDatasetGeographyTool extends BaseTool<FetchDatasetGeographyArg
     apiKey: string,
   ): Promise<{ content: ToolContent[] }> {
     try {
-      // Check database health first
-      const isDbHealthy = await this.dbService.healthCheck()
+      const isDbHealthy = await this.metadata.healthCheck()
       if (!isDbHealthy) {
         return this.createErrorResponse(
           'Database connection failed - cannot retrieve geography metadata.',
         )
       }
 
-      // Get geography levels from database
-      const geographyLevels = await this.getSummaryLevels()
+      const geographyLevels = await this.metadata.getSummaryLevels()
 
       const fetch = (await import('node-fetch')).default
       let year = ''

@@ -1,21 +1,35 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import {
   CallToolRequestSchema,
   GetPromptRequestSchema,
   ListPromptsRequestSchema,
+  ListResourcesRequestSchema,
   ListToolsRequestSchema,
+  ReadResourceRequestSchema,
   ErrorCode,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import { MCPPrompt, PromptRegistry } from './prompts/base.prompt.js'
+import { MCPResource, ResourceRegistry } from './resources/base.resource.js'
 import { MCPTool, ToolRegistry } from './tools/base.tool.js'
+
+// Tools may be hidden from the model via _meta.ui.visibility: ['app'].
+// We still let the app call them via tools/call — they just don't appear in
+// tools/list for normal clients.
+function isModelVisible(tool: { _meta?: Record<string, unknown> }): boolean {
+  const ui = (tool._meta?.ui ?? {}) as { visibility?: string[] }
+  const visibility = ui.visibility
+  if (!Array.isArray(visibility) || visibility.length === 0) return true
+  return visibility.includes('model')
+}
 
 export class MCPServer {
   private server: Server
   private toolRegistry = new ToolRegistry()
   private promptRegistry = new PromptRegistry()
+  private resourceRegistry = new ResourceRegistry()
 
   constructor(name: string, version: string) {
     this.server = new Server(
@@ -24,6 +38,7 @@ export class MCPServer {
         capabilities: {
           tools: {},
           prompts: {},
+          resources: {},
         },
       },
     )
@@ -31,32 +46,49 @@ export class MCPServer {
   }
 
   private setupHandlers() {
-    // Tool handlers
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      return await this.getTools()
-    })
+    // setRequestHandler's zod-backed generics accumulate variance across 6+
+    // call sites and blow TS's depth budget — route through a thin wrapper to
+    // reset inference.
+    const set = (
+      schema: Parameters<Server['setRequestHandler']>[0],
+      handler: Parameters<Server['setRequestHandler']>[1],
+    ): void => {
+      this.server.setRequestHandler(
+        schema as Parameters<typeof this.server.setRequestHandler>[0],
+        handler as Parameters<typeof this.server.setRequestHandler>[1],
+      )
+    }
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      return await this.handleToolCall(request)
-    })
-
-    // Prompt handlers
-    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
-      return await this.getPrompts()
-    })
-
-    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-      return await this.handleGetPrompt(request)
-    })
+    set(ListToolsRequestSchema, async () => this.getTools())
+    set(CallToolRequestSchema, async (request) =>
+      this.handleToolCall(
+        request as { params: { name: string; arguments?: unknown } },
+      ),
+    )
+    set(ListPromptsRequestSchema, async () => this.getPrompts())
+    set(GetPromptRequestSchema, async (request) =>
+      this.handleGetPrompt(
+        request as { params: { name: string; arguments?: unknown } },
+      ),
+    )
+    set(ListResourcesRequestSchema, async () => this.getResources())
+    set(ReadResourceRequestSchema, async (request) =>
+      this.handleReadResource(request as { params: { uri: string } }),
+    )
   }
 
   getTools() {
     return {
-      tools: this.toolRegistry.getAll().map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-      })),
+      tools: this.toolRegistry
+        .getAll()
+        .filter((tool) => isModelVisible(tool))
+        .map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+          ...(tool.annotations ? { annotations: tool.annotations } : {}),
+          ...(tool._meta ? { _meta: tool._meta } : {}),
+        })),
     }
   }
 
@@ -71,9 +103,7 @@ export class MCPServer {
     }
 
     try {
-      // Validate arguments using the tool's schema
       const validatedArgs = tool.argsSchema.parse(request.params.arguments)
-      // Call the tool handler
       return await tool.handler(validatedArgs)
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -138,7 +168,39 @@ export class MCPServer {
     this.promptRegistry.register(prompt)
   }
 
-  async connect(transport: StdioServerTransport) {
+  registerResource(resource: MCPResource) {
+    this.resourceRegistry.register(resource)
+  }
+
+  getResources() {
+    return {
+      resources: this.resourceRegistry.getAll().map((resource) => ({
+        uri: resource.uri,
+        name: resource.name,
+        ...(resource.description ? { description: resource.description } : {}),
+        ...(resource.mimeType ? { mimeType: resource.mimeType } : {}),
+        ...(resource.annotations ? { annotations: resource.annotations } : {}),
+        ...(resource._meta ? { _meta: resource._meta } : {}),
+      })),
+    }
+  }
+
+  async handleReadResource(request: { params: { uri: string } }) {
+    const resource = this.resourceRegistry.get(request.params.uri)
+    if (!resource) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Unknown resource: ${request.params.uri}`,
+      )
+    }
+    return await resource.read()
+  }
+
+  async connect(transport: Transport) {
     await this.server.connect(transport)
+  }
+
+  async close() {
+    await this.server.close()
   }
 }

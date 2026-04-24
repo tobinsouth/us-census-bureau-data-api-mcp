@@ -10,10 +10,8 @@ import {
 } from 'vitest'
 import { TextContent } from '@modelcontextprotocol/sdk/types.js'
 
-vi.mock('../../../src/services/database.service.js', () => ({
-  DatabaseService: {
-    getInstance: vi.fn(),
-  },
+vi.mock('../../../src/services/metadata.service.js', () => ({
+  getMetadataService: vi.fn(),
 }))
 
 import {
@@ -21,7 +19,7 @@ import {
   validateToolStructure,
 } from '../../helpers/test-utils'
 
-import { DatabaseService } from '../../../src/services/database.service.js'
+import { getMetadataService } from '../../../src/services/metadata.service.js'
 import {
   SearchDataTablesTool,
   toolDescription,
@@ -74,22 +72,30 @@ function getTextContent(
 
 describe('SearchDataTablesTool', () => {
   let tool: SearchDataTablesTool
-  let mockDbService: {
+  let mockMetadata: {
     healthCheck: Mock
-    query: Mock
+    searchDataTables: Mock
+    getSummaryLevels: Mock
+    searchSummaryLevels: Mock
+    searchGeographies: Mock
+    searchGeographiesBySummaryLevel: Mock
   }
 
   beforeAll(() => {
-    mockDbService = {
+    mockMetadata = {
       healthCheck: vi.fn(),
-      query: vi.fn(),
+      searchDataTables: vi.fn(),
+      getSummaryLevels: vi.fn(),
+      searchSummaryLevels: vi.fn(),
+      searchGeographies: vi.fn(),
+      searchGeographiesBySummaryLevel: vi.fn(),
     }
-    ;(DatabaseService.getInstance as Mock).mockReturnValue(mockDbService)
+    ;(getMetadataService as Mock).mockReturnValue(mockMetadata)
   })
 
   beforeEach(() => {
-    mockDbService.healthCheck.mockReset().mockResolvedValue(true)
-    mockDbService.query.mockReset().mockResolvedValue({ rows: mockDataTables })
+    mockMetadata.healthCheck.mockReset().mockResolvedValue(true)
+    mockMetadata.searchDataTables.mockReset().mockResolvedValue(mockDataTables)
 
     tool = new SearchDataTablesTool()
   })
@@ -152,15 +158,15 @@ describe('SearchDataTablesTool', () => {
     })
   })
 
-  describe('Database Integration', () => {
-    it('should check database health before querying', async () => {
+  describe('Metadata Integration', () => {
+    it('should check metadata health before querying', async () => {
       await tool.handler(byIdArgs)
 
-      expect(mockDbService.healthCheck).toHaveBeenCalledOnce()
+      expect(mockMetadata.healthCheck).toHaveBeenCalledOnce()
     })
 
-    it('should return error when database is unhealthy', async () => {
-      mockDbService.healthCheck.mockResolvedValue(false)
+    it('should return error when metadata is unhealthy', async () => {
+      mockMetadata.healthCheck.mockResolvedValue(false)
 
       const response = await tool.handler(byIdArgs)
       validateResponseStructure(response)
@@ -169,8 +175,10 @@ describe('SearchDataTablesTool', () => {
       )
     })
 
-    it('should handle database query errors gracefully', async () => {
-      mockDbService.query.mockRejectedValue(new Error('Connection timeout'))
+    it('should handle metadata errors gracefully', async () => {
+      mockMetadata.searchDataTables.mockRejectedValue(
+        new Error('Connection timeout'),
+      )
 
       const response = await tool.handler(byIdArgs)
       validateResponseStructure(response)
@@ -179,34 +187,33 @@ describe('SearchDataTablesTool', () => {
       )
     })
 
-    it('should call search_data_tables with correct positional params', async () => {
+    it('should forward all search params to metadata service', async () => {
       await tool.handler(allParamsArgs)
 
-      const [sql, params] = mockDbService.query.mock.calls[0]
-      expect(sql).toContain('SELECT * FROM search_data_tables($1, $2, $3, $4)')
-      expect(params).toEqual([
-        'B16005',
-        'language spoken at home',
-        'acs/acs1',
-        10,
-      ])
+      expect(mockMetadata.searchDataTables).toHaveBeenCalledWith({
+        data_table_id: 'B16005',
+        label_query: 'language spoken at home',
+        api_endpoint: 'acs/acs1',
+        limit: 10,
+      })
     })
 
     it('should pass null for omitted optional params', async () => {
       await tool.handler(byLabelArgs)
 
-      const [, params] = mockDbService.query.mock.calls[0]
-      expect(params[0]).toBeNull() // data_table_id
-      expect(params[1]).toBe('language spoken at home')
-      expect(params[2]).toBeNull() // api_endpoint
-      expect(params[3]).toBe(20) // default limit
+      expect(mockMetadata.searchDataTables).toHaveBeenCalledWith({
+        data_table_id: null,
+        label_query: 'language spoken at home',
+        api_endpoint: null,
+        limit: 20,
+      })
     })
 
     it('should use default limit of 20 when limit is not provided', async () => {
       await tool.handler(byIdArgs)
 
-      const [, params] = mockDbService.query.mock.calls[0]
-      expect(params[3]).toBe(20)
+      const call = mockMetadata.searchDataTables.mock.calls[0][0]
+      expect(call.limit).toBe(20)
     })
   })
 
@@ -225,7 +232,7 @@ describe('SearchDataTablesTool', () => {
       })
 
       it('uses singular form when exactly one result is returned', async () => {
-        mockDbService.query.mockResolvedValue({ rows: [mockDataTables[0]] })
+        mockMetadata.searchDataTables.mockResolvedValue([mockDataTables[0]])
 
         const result = await tool.handler(byIdArgs)
 
@@ -254,7 +261,7 @@ describe('SearchDataTablesTool', () => {
 
     describe('when no results are found', () => {
       beforeEach(() => {
-        mockDbService.query.mockResolvedValue({ rows: [] })
+        mockMetadata.searchDataTables.mockResolvedValue([])
       })
 
       it('returns a no-results message for a data_table_id search', async () => {

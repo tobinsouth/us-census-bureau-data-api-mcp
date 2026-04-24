@@ -23,3 +23,11 @@ tmp/
 
 # System files
 .DS_Store
+
+# Generated SQLite metadata (regenerated via `npm run build:sqlite -- --fixture`)
+mcp-server/census-metadata.sqlite
+mcp-server/census-metadata.sqlite-shm
+mcp-server/census-metadata.sqlite-wal
+
+# Claude Code per-project MCP config — dev convenience, points at localhost
+.mcp.json
