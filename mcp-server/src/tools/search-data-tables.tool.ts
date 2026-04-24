@@ -20,8 +20,8 @@ export const toolDescription = `
 
   For best results, provide api_endpoint whenever the target survey or dataset is known. Scoping to a specific endpoint significantly improves ranking quality by eliminating cross-survey noise.
 
-  Each result object includes:
-  - data_table_id: maps to the get.group parameter in fetch-aggregate-data
+  Each result object (one per matching table, NOT per dataset entry) includes:
+  - data_table_id: top-level field on the result; pass as the \`get.group\` parameter to fetch-aggregate-data
   - label: canonical label for the data table
   - component: the program and component this table belongs to (e.g., "American Community Survey - ACS 1-Year Estimates")
   - datasets: an object mapping years to arrays of API endpoints in which this table is available

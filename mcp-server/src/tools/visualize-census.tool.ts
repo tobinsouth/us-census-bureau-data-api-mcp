@@ -149,7 +149,9 @@ export const visualizeCensusDescription = `
 export class VisualizeCensusTool extends BaseTool<VisualizeCensusArgs> {
   name = 'visualize-census'
   description = visualizeCensusDescription
-  readonly requiresApiKey = true
+  // The key is only needed on the `fetch` path; `data` renders without it.
+  // loadRows() enforces the key requirement only when args.fetch is present.
+  readonly requiresApiKey = false
 
   inputSchema: Tool['inputSchema'] =
     VisualizeCensusJsonSchema as unknown as Tool['inputSchema']
@@ -201,9 +203,6 @@ export class VisualizeCensusTool extends BaseTool<VisualizeCensusArgs> {
         ...(normalizedGeo ? { geo: normalizedGeo } : {}),
         ...(args.interactive ? { interactive: args.interactive } : {}),
         ...(sourceUrl ? { sourceUrl } : {}),
-        // `truncated` signals dropped ROWS; column pruning is reported
-        // separately so downstream diagnostics can distinguish the two.
-        truncated: null as { droppedRows: number } | null,
         ...(truncation.prunedColumns
           ? { prunedColumns: truncation.prunedColumns }
           : {}),
@@ -237,15 +236,15 @@ export class VisualizeCensusTool extends BaseTool<VisualizeCensusArgs> {
     if (!args.fetch) {
       throw new Error('Provide exactly one of `fetch` or `data`.')
     }
-    if (!apiKey) {
+    // Base handler doesn't populate apiKey when requiresApiKey is false; read
+    // process.env directly so the fetch path still works, and only error when
+    // a fetch is actually being attempted.
+    const key = apiKey ?? process.env.CENSUS_API_KEY
+    if (!key) {
       throw new Error('CENSUS_API_KEY is not set.')
     }
     const fetchArgs = args.fetch as TableArgs
-    const {
-      url: sourceUrl,
-      headers,
-      rows,
-    } = await censusFetch(fetchArgs, apiKey)
+    const { url: sourceUrl, headers, rows } = await censusFetch(fetchArgs, key)
     const objects = rows.map((row) => {
       const obj: Record<string, unknown> = {}
       headers.forEach((h, i) => {
