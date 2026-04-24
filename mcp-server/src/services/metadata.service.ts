@@ -101,7 +101,8 @@ export class SqliteMetadataService implements MetadataService {
         | { health: number }
         | undefined
       return row?.health === 1
-    } catch {
+    } catch (err) {
+      console.error('SqliteMetadataService healthCheck failed:', err)
       return false
     }
   }

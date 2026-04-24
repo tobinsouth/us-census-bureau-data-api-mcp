@@ -521,7 +521,11 @@ function buildFromFixture(outPath: string, mcpDbDataDir: string): void {
   if (existsSync(outPath)) rmSync(outPath)
   const db = new Database(outPath)
   try {
-    db.pragma('journal_mode = WAL')
+    // Keep the default rollback journal (file-per-transaction, deleted on
+    // commit) instead of WAL. WAL leaves sidecar `-wal`/`-shm` files that
+    // SQLite still wants to touch when opening the DB read-only from a
+    // read-only container directory, which fails with SQLITE_READONLY_DIRECTORY.
+    db.pragma('journal_mode = DELETE')
     db.pragma('foreign_keys = ON')
     createSchema(db)
 
