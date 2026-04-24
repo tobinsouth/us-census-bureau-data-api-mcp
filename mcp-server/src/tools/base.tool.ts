@@ -3,11 +3,23 @@ import { z } from 'zod'
 
 import { ToolContent } from '../types/base.types.js'
 
+export interface ToolAnnotations {
+  title?: string
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+  openWorldHint?: boolean
+}
+
+export type ToolMeta = Record<string, unknown>
+
 export interface MCPTool<Args extends object = object> {
   name: string
   description: string
   inputSchema: Tool['inputSchema']
   argsSchema: z.ZodSchema<Args, z.ZodTypeDef, Args>
+  annotations?: ToolAnnotations
+  _meta?: ToolMeta
   handler: (args: Args) => Promise<{ content: ToolContent[] }>
 }
 
@@ -16,6 +28,8 @@ interface StoredMCPTool {
   description: string
   inputSchema: Tool['inputSchema']
   argsSchema: z.ZodSchema<object, z.ZodTypeDef, object>
+  annotations?: ToolAnnotations
+  _meta?: ToolMeta
   handler: (args: object) => Promise<{ content: ToolContent[] }>
 }
 
@@ -83,6 +97,8 @@ export class ToolRegistry {
       description: tool.description,
       inputSchema: tool.inputSchema,
       argsSchema: tool.argsSchema as z.ZodSchema<object, z.ZodTypeDef, object>,
+      annotations: tool.annotations,
+      _meta: tool._meta,
       handler: tool.handler as (
         args: object,
       ) => Promise<{ content: ToolContent[] }>,

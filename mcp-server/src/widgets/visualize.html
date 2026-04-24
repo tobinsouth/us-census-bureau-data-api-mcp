@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Census Visualization</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        color: var(--text-primary, #222);
+        font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      :root.dark, .dark html, .dark body { color: var(--text-primary, #e6e6e6); }
+
+      .wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px 14px 10px;
+      }
+      .wrap.superseded {
+        opacity: 0.45;
+        pointer-events: none;
+        filter: grayscale(1);
+      }
+
+      .head {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+      }
+      .head h1 {
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0;
+        flex: 1;
+        line-height: 1.25;
+      }
+      .head .spacer { flex: 1; }
+      .btn {
+        appearance: none;
+        background: transparent;
+        border: 1px solid var(--border, rgba(128,128,128,0.28));
+        border-radius: 6px;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        padding: 3px 8px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .btn:hover { background: var(--background-hover, rgba(128,128,128,0.1)); }
+      .btn[hidden] { display: none; }
+
+      .note {
+        background: var(--background-subtle, rgba(128,128,128,0.08));
+        border-left: 3px solid var(--accent, #3b7dd8);
+        padding: 8px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .chart {
+        width: 100%;
+        min-height: 220px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .chart svg, .chart canvas {
+        max-width: 100%;
+        height: auto;
+      }
+
+      .skeleton {
+        width: 100%;
+        height: 240px;
+        border-radius: 6px;
+        background: linear-gradient(
+          90deg,
+          var(--background-subtle, rgba(128,128,128,0.08)) 0%,
+          var(--background-hover, rgba(128,128,128,0.15)) 50%,
+          var(--background-subtle, rgba(128,128,128,0.08)) 100%
+        );
+        background-size: 200% 100%;
+        animation: shimmer 1.4s infinite;
+      }
+      @keyframes shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+
+      .foot {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 11.5px;
+        color: var(--text-secondary, #666);
+        flex-wrap: wrap;
+      }
+      .foot .count { margin-right: auto; }
+      .foot a, .foot button.link {
+        color: var(--text-secondary, #666);
+        text-decoration: none;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font: inherit;
+        padding: 2px 4px;
+        border-radius: 4px;
+      }
+      .foot a:hover, .foot button.link:hover {
+        color: var(--text-primary, #222);
+        background: var(--background-hover, rgba(128,128,128,0.1));
+      }
+
+      details.debug {
+        font-size: 11px;
+        color: var(--text-secondary, #666);
+      }
+      details.debug pre {
+        margin: 4px 0 0;
+        padding: 8px;
+        background: var(--background-subtle, rgba(128,128,128,0.08));
+        border-radius: 4px;
+        max-height: 220px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .error {
+        padding: 10px 12px;
+        background: rgba(220, 53, 69, 0.08);
+        border-left: 3px solid #dc3545;
+        border-radius: 4px;
+        font-size: 12px;
+        color: var(--text-primary, #222);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        .note { border-left-color: #6ca0e8; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap" id="wrap">
+      <div class="head">
+        <h1 id="title">Census Visualization</h1>
+        <span class="spacer"></span>
+        <button class="btn" id="fullscreen-btn" hidden title="Toggle fullscreen">
+          <span aria-hidden="true">⤢</span>
+          <span id="fullscreen-label">Fullscreen</span>
+        </button>
+      </div>
+      <div class="note" id="note" hidden></div>
+      <div class="chart" id="chart">
+        <div class="skeleton" id="skeleton"></div>
+      </div>
+      <div class="foot">
+        <span class="count" id="count"></span>
+        <button class="link" id="csv-btn" type="button" hidden>CSV ↓</button>
+        <button class="link" id="png-btn" type="button" hidden>PNG ↓</button>
+        <button class="link" id="source-btn" type="button" hidden>Source ↗</button>
+      </div>
+      <details class="debug">
+        <summary>Debug</summary>
+        <pre id="debug-pre">Waiting for tool result…</pre>
+      </details>
+    </div>
+
+    <script>/*__VEGA_BUNDLE__*/</script>
+    <script>/*__VEGA_LITE_BUNDLE__*/</script>
+    <script>/*__VEGA_EMBED_BUNDLE__*/</script>
+    <script type="module">
+      /*__EXT_APPS_BUNDLE__*/
+
+      const { App, applyHostStyleVariables } = globalThis.ExtApps;
+      const vegaEmbed = globalThis.vegaEmbed ?? globalThis["vega-embed"];
+
+      const wrap = document.getElementById("wrap");
+      const titleEl = document.getElementById("title");
+      const noteEl = document.getElementById("note");
+      const chartEl = document.getElementById("chart");
+      const countEl = document.getElementById("count");
+      const csvBtn = document.getElementById("csv-btn");
+      const pngBtn = document.getElementById("png-btn");
+      const srcBtn = document.getElementById("source-btn");
+      const fsBtn = document.getElementById("fullscreen-btn");
+      const fsLabel = document.getElementById("fullscreen-label");
+      const debugPre = document.getElementById("debug-pre");
+
+      let currentPayload = null;
+      let currentView = null;
+      let superseded = false;
+      let instanceId =
+        (globalThis.crypto && globalThis.crypto.randomUUID && globalThis.crypto.randomUUID()) ||
+        String(Date.now() + Math.random());
+
+      // Broadcast supersession so stale widgets grey out when a new one lands
+      // in the same conversation.
+      let channel = null;
+      try {
+        channel = new BroadcastChannel("census-visualizer");
+        channel.onmessage = (event) => {
+          if (!event.data || event.data.type !== "new") return;
+          if (event.data.id === instanceId) return;
+          if (event.data.time < bornAt) return;
+          supersede();
+        };
+      } catch (err) {
+        // BroadcastChannel not available in this sandbox; ignore.
+      }
+      const bornAt = Date.now();
+
+      function supersede() {
+        superseded = true;
+        wrap.classList.add("superseded");
+      }
+
+      function setDebug(obj) {
+        try {
+          debugPre.textContent =
+            typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+        } catch (err) {
+          debugPre.textContent = String(obj);
+        }
+      }
+
+      function renderError(message) {
+        chartEl.innerHTML = "";
+        const div = document.createElement("div");
+        div.className = "error";
+        div.textContent = message;
+        chartEl.appendChild(div);
+      }
+
+      function renderSkeleton() {
+        chartEl.innerHTML = '<div class="skeleton"></div>';
+      }
+
+      function clearChart() {
+        chartEl.innerHTML = "";
+        countEl.textContent = "";
+        csvBtn.hidden = true;
+        pngBtn.hidden = true;
+        srcBtn.hidden = true;
+      }
+
+      function vegaConfig() {
+        const styles = getComputedStyle(document.documentElement);
+        const v = (name, fallback) => {
+          const raw = styles.getPropertyValue(name).trim();
+          return raw || fallback;
+        };
+        const textColor = v("--text-primary", "#222");
+        const mutedColor = v("--text-secondary", "#666");
+        const gridColor = v("--border", "rgba(128,128,128,0.25)");
+        return {
+          background: "transparent",
+          view: { stroke: null },
+          axis: {
+            labelColor: mutedColor,
+            titleColor: textColor,
+            gridColor,
+            domainColor: gridColor,
+            tickColor: gridColor,
+          },
+          legend: { labelColor: mutedColor, titleColor: textColor },
+          title: { color: textColor },
+        };
+      }
+
+      function selectTrigger(app) {
+        const touch = !!app.getHostContext?.()?.deviceCapabilities?.touch;
+        return touch ? "pointerdown" : "click";
+      }
+
+      function composeGeoSpec(baseSpec, rows, topojson, level) {
+        // Accept singular or plural level from the caller — us-atlas object
+        // keys are plural.
+        const normLevel =
+          level === "state" || level === "states" ? "states" : "counties";
+        const objectKey = normLevel;
+        const keyWidth = normLevel === "counties" ? 5 : 2;
+
+        const features = topojson?.objects?.[objectKey]?.geometries || [];
+        // us-atlas ids ship as unpadded numbers ("1" for Alabama, "48001" as
+        // number 48001). Normalize to the canonical zero-padded FIPS string
+        // so the lookup join below matches server-stamped __fips values.
+        for (const feat of features) {
+          if (feat.id != null) {
+            feat.id = String(feat.id)
+              .replace(/\D/g, "")
+              .padStart(keyWidth, "0");
+          }
+        }
+
+        // Stamp __matched on every row BEFORE the join so the scope filter
+        // never depends on a column the caller chose (NAME / label / missing).
+        const matchedRows = rows.map((row) => ({ ...row, __matched: 1 }));
+        const fieldNames = matchedRows.length
+          ? Array.from(
+              new Set(matchedRows.flatMap((r) => Object.keys(r))),
+            ).filter((f) => f !== "__fips")
+          : ["__matched"];
+
+        const transform = [];
+        transform.push({
+          lookup: "id",
+          from: {
+            data: { values: matchedRows },
+            key: "__fips",
+            fields: fieldNames,
+          },
+        });
+        transform.push({ filter: "datum.__matched === 1" });
+        if (Array.isArray(baseSpec.transform)) {
+          for (const t of baseSpec.transform) transform.push(t);
+        }
+
+        return {
+          ...baseSpec,
+          data: {
+            values: topojson,
+            format: { type: "topojson", feature: objectKey },
+          },
+          transform,
+        };
+      }
+
+      function composeTabularSpec(baseSpec, rows) {
+        return { ...baseSpec, data: { values: rows } };
+      }
+
+      async function renderChart(app, payload) {
+        clearChart();
+        const rows = payload.rows || [];
+        countEl.textContent = `${rows.length} row${rows.length === 1 ? "" : "s"}`;
+
+        if (!vegaEmbed) {
+          renderError("vega-embed is unavailable in this sandbox.");
+          return;
+        }
+
+        let spec;
+        try {
+          if (payload.geo) {
+            // get-topojson expects plural; normalize here too.
+            const level =
+              payload.geo.level === "state" || payload.geo.level === "states"
+                ? "states"
+                : "counties";
+            const topoResp = await app.callServerTool({
+              name: "get-topojson",
+              arguments: { level },
+            });
+            const topoText = topoResp?.content?.[0]?.text ?? "{}";
+            const topojson = JSON.parse(topoText);
+            spec = composeGeoSpec(payload.spec, rows, topojson, level);
+          } else {
+            spec = composeTabularSpec(payload.spec, rows);
+          }
+        } catch (err) {
+          renderError(`Failed to prepare chart data: ${(err && err.message) || err}`);
+          return;
+        }
+
+        try {
+          const result = await vegaEmbed(chartEl, spec, {
+            actions: false,
+            renderer: "svg",
+            config: vegaConfig(),
+          });
+          currentView = result.view;
+        } catch (err) {
+          renderError(`Vega render error: ${(err && err.message) || err}`);
+          return;
+        }
+
+        csvBtn.hidden = false;
+        pngBtn.hidden = false;
+        srcBtn.hidden = !payload.sourceUrl;
+
+        if (payload.interactive?.onClickSend) {
+          currentView.addEventListener(selectTrigger(app), async (event, item) => {
+            if (superseded) return;
+            if (!item || !item.datum) return;
+            // After the lookup transform, row fields are flattened onto the
+            // datum; `properties` is only present on raw topojson features.
+            const datum = Object.assign({}, item.datum.properties || {}, item.datum);
+            try {
+              const template = payload.interactive.onClickSend;
+              const rendered = renderTemplate(template, datum);
+              if (rendered.mode === "updateModelContext") {
+                await app.updateModelContext({ structuredContent: rendered.payload });
+              } else {
+                await app.sendMessage({
+                  role: "user",
+                  content: [{ type: "text", text: rendered.text }],
+                });
+              }
+            } catch (err) {
+              // Swallow — user interactions shouldn't blow up the widget.
+              setDebug({ clickError: String(err) });
+            }
+          });
+        }
+      }
+
+      function renderTemplate(template, datum) {
+        // template: "Tell me about {NAME} ({__fips})" or {updateContext: {...}}
+        if (typeof template === "string") {
+          const text = template.replace(/\{([^}]+)\}/g, (_, key) => {
+            const value = datum[key.trim()];
+            return value == null ? "" : String(value);
+          });
+          return { mode: "sendMessage", text };
+        }
+        if (template && typeof template === "object") {
+          if (template.updateContext) {
+            return { mode: "updateModelContext", payload: template.updateContext };
+          }
+          if (typeof template.text === "string") {
+            return {
+              mode: "sendMessage",
+              text: renderTemplate(template.text, datum).text,
+            };
+          }
+        }
+        return { mode: "sendMessage", text: JSON.stringify(datum) };
+      }
+
+      function escapeCsvCell(value) {
+        if (value == null) return "";
+        const s = String(value);
+        if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+      }
+
+      function rowsToCsv(rows) {
+        if (!rows.length) return "";
+        const cols = Object.keys(rows[0]);
+        const lines = [cols.join(",")];
+        for (const row of rows) {
+          lines.push(cols.map((c) => escapeCsvCell(row[c])).join(","));
+        }
+        return lines.join("\n");
+      }
+
+      function slugify(name) {
+        return (name || "census").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      }
+
+      csvBtn.addEventListener("click", async () => {
+        if (!currentPayload) return;
+        const rows = currentPayload.rows || currentPayload.data || [];
+        const csv = rowsToCsv(rows);
+        const filename = `${slugify(currentPayload.title)}.csv`;
+        try {
+          await app.downloadFile({
+            contents: [
+              {
+                type: "resource",
+                resource: {
+                  uri: `mcp-app://widget/${filename}`,
+                  mimeType: "text/csv",
+                  text: csv,
+                },
+              },
+            ],
+          });
+        } catch (err) {
+          setDebug({ csvError: String(err) });
+        }
+      });
+
+      pngBtn.addEventListener("click", async () => {
+        if (!currentView) return;
+        try {
+          const dataUri = await currentView.toImageURL("png");
+          // downloadFile resource schema requires text OR blob (string). For a
+          // binary PNG we strip the `data:image/png;base64,` prefix and pass
+          // the raw base64 as `blob`.
+          const blob = dataUri.replace(/^data:[^,]+,/, "");
+          const filename = `${slugify(currentPayload?.title)}.png`;
+          await app.downloadFile({
+            contents: [
+              {
+                type: "resource",
+                resource: {
+                  uri: `mcp-app://widget/${filename}`,
+                  mimeType: "image/png",
+                  blob,
+                },
+              },
+            ],
+          });
+        } catch (err) {
+          setDebug({ pngError: String(err) });
+        }
+      });
+
+      srcBtn.addEventListener("click", async () => {
+        if (!currentPayload?.sourceUrl) return;
+        try {
+          await app.openLink({ url: currentPayload.sourceUrl });
+        } catch (err) {
+          setDebug({ openLinkError: String(err) });
+        }
+      });
+
+      fsBtn.addEventListener("click", async () => {
+        try {
+          const ctx = app.getHostContext?.();
+          const current = ctx?.displayMode ?? "inline";
+          const next = current === "fullscreen" ? "inline" : "fullscreen";
+          const result = await app.requestDisplayMode({ mode: next });
+          fsLabel.textContent = result?.mode === "fullscreen" ? "Exit" : "Fullscreen";
+        } catch (err) {
+          setDebug({ displayModeError: String(err) });
+        }
+      });
+
+      function applyContextStyles(ctx) {
+        if (!ctx) return;
+        if (ctx.styles && typeof applyHostStyleVariables === "function") {
+          try {
+            applyHostStyleVariables(ctx.styles);
+          } catch (err) {
+            // no-op
+          }
+        }
+        if (ctx.theme === "dark") {
+          document.documentElement.classList.add("dark");
+          document.documentElement.style.colorScheme = "dark";
+        } else if (ctx.theme === "light") {
+          document.documentElement.classList.remove("dark");
+          document.documentElement.style.colorScheme = "light";
+        }
+        const modes = Array.isArray(ctx.availableDisplayModes)
+          ? ctx.availableDisplayModes
+          : [];
+        fsBtn.hidden = !modes.includes("fullscreen");
+      }
+
+      async function handlePayload(content) {
+        if (!content || !content.length) return;
+        try {
+          const text = content[0]?.text;
+          const parsed = typeof text === "string" ? JSON.parse(text) : text;
+          if (!parsed || !parsed.spec) {
+            renderError("Tool did not return a visualization payload.");
+            setDebug(parsed ?? content);
+            return;
+          }
+          currentPayload = parsed;
+          titleEl.textContent = parsed.title || "Census Visualization";
+          if (parsed.note) {
+            noteEl.textContent = parsed.note;
+            noteEl.hidden = false;
+          } else {
+            noteEl.hidden = true;
+          }
+          setDebug({
+            title: parsed.title,
+            rows: (parsed.rows ?? parsed.data ?? []).length,
+            truncated: parsed.truncated ?? null,
+            prunedColumns: parsed.prunedColumns ?? null,
+            geo: parsed.geo ?? null,
+            sourceUrl: parsed.sourceUrl ?? null,
+          });
+          // Back-compat shim — if an older server still emits `data`, alias it.
+          if (!parsed.rows && parsed.data) parsed.rows = parsed.data;
+          if (!superseded) {
+            channel?.postMessage({ type: "new", id: instanceId, time: bornAt });
+          }
+          await renderChart(app, parsed);
+        } catch (err) {
+          renderError(`Failed to parse tool result: ${(err && err.message) || err}`);
+        }
+      }
+
+      const app = new App(
+        { name: "CensusVisualizer", version: "0.1.0" },
+        {},
+        { autoResize: true },
+      );
+
+      app.ontoolinputpartial = () => {
+        if (!superseded) renderSkeleton();
+      };
+
+      app.ontoolcancelled = () => {
+        clearChart();
+      };
+
+      app.ontoolresult = ({ content }) => {
+        void handlePayload(content);
+      };
+
+      app.onhostcontextchanged = (ctx) => {
+        applyContextStyles(ctx);
+      };
+
+      (async () => {
+        try {
+          await app.connect();
+          applyContextStyles(app.getHostContext?.() ?? {});
+        } catch (err) {
+          renderError(`Failed to connect to host: ${(err && err.message) || err}`);
+        }
+      })();
+    </script>
+  </body>
+</html>
