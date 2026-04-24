@@ -31,3 +31,6 @@ mcp-server/census-metadata.sqlite-wal
 
 # Claude Code per-project MCP config — dev convenience, points at localhost
 .mcp.json
+
+# wrangler local state (if wrangler is invoked in-tree for any reason)
+.wrangler/

@@ -1,0 +1,54 @@
+# Multi-stage build for the streamable-HTTP Census MCP.
+# Build context = repo root (`docker build -f mcp-server/Dockerfile.http -t census-mcp ..`)
+# so the build stage can reach mcp-db/data for the SQLite fixture.
+
+# ------------------------------------------------------------ build stage
+FROM node:22-alpine AS builder
+WORKDIR /build
+
+# better-sqlite3 ships prebuilt binaries for musl, but fall back cleanly
+# if the download 404s on a new Node patch.
+RUN apk add --no-cache python3 make g++
+
+COPY mcp-server/package.json mcp-server/package-lock.json ./mcp-server/
+WORKDIR /build/mcp-server
+# `--ignore-scripts` skips postinstall so we can rebuild the native module
+# (better-sqlite3) on a clean musl toolchain — its prebuilt binaries aren't
+# always in sync with the Node 22 patch alpine ships.
+RUN npm ci --ignore-scripts
+RUN npm rebuild better-sqlite3
+
+COPY mcp-server/tsconfig.json ./
+COPY mcp-server/src ./src
+COPY mcp-server/scripts ./scripts
+
+# Fixture data lives one level up from mcp-server/
+COPY mcp-db/data /build/mcp-db/data
+
+RUN npm run build
+RUN npm run build:sqlite -- --fixture
+
+# ------------------------------------------------------------ runtime
+FROM node:22-alpine AS runtime
+WORKDIR /app
+
+ENV NODE_ENV=production \
+    PORT=8080 \
+    TRUST_PROXY=2 \
+    SQLITE_PATH=/app/census-metadata.sqlite
+
+# Non-root user matches Fly conventions and reduces blast radius.
+RUN addgroup -S mcp && adduser -S -G mcp mcp
+
+COPY --from=builder --chown=mcp:mcp /build/mcp-server/package.json ./package.json
+COPY --from=builder --chown=mcp:mcp /build/mcp-server/dist ./dist
+COPY --from=builder --chown=mcp:mcp /build/mcp-server/node_modules ./node_modules
+COPY --from=builder --chown=mcp:mcp /build/mcp-server/census-metadata.sqlite ./census-metadata.sqlite
+
+# widget-loader reads src/widgets/visualize.html at startup relative to the
+# mcp-server root; keep the .html shipped alongside dist/.
+COPY --from=builder --chown=mcp:mcp /build/mcp-server/src/widgets/visualize.html ./src/widgets/visualize.html
+
+USER mcp
+EXPOSE 8080
+CMD ["node", "dist/http.js"]

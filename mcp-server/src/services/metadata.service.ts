@@ -89,9 +89,10 @@ export class SqliteMetadataService implements MetadataService {
   private stmtAllGeographies?: Statement<[], SqliteGeographyRow>
 
   constructor(path: string) {
+    // `readonly: true` is the access guarantee; `journal_mode` / `query_only`
+    // pragmas were write-mode micro-opts that fail when the containing
+    // directory isn't writable (e.g. a read-only container volume).
     this.db = new Database(path, { readonly: true, fileMustExist: true })
-    this.db.pragma('journal_mode = OFF')
-    this.db.pragma('query_only = ON')
   }
 
   async healthCheck(): Promise<boolean> {
