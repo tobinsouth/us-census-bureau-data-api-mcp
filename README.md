@@ -4,6 +4,10 @@
 
 Bringing official Census Bureau statistics to AI assistants **plus** an interactive Vega-Lite widget for maps and charts, hosted on Fly.io + Cloudflare for horizontal scaling.
 
+
+<img width="827" height="1004" alt="CleanShot 2026-04-24 at 11 58 12@2x" src="https://github.com/user-attachments/assets/0a24c1ae-2338-448e-942c-6fa23af84169" />
+
+
 ---
 
 ## What this fork adds
