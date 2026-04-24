@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { BaseTool } from './base.tool.js'
 import { buildCitation } from '../helpers/citation.js'
+import { censusFetch } from '../services/census-api.service.js'
 import {
   FetchAggregateDataToolSchema,
   TableArgs,
@@ -24,6 +25,12 @@ export class FetchAggregateDataTool extends BaseTool<TableArgs> {
   description = toolDescription
   inputSchema: Tool['inputSchema'] = TableSchema as Tool['inputSchema']
   readonly requiresApiKey = true
+
+  annotations = {
+    title: 'Fetch Census aggregate data',
+    readOnlyHint: true,
+    openWorldHint: true,
+  }
 
   get argsSchema() {
     return FetchAggregateDataToolSchema.superRefine((args, ctx) => {
@@ -55,75 +62,18 @@ export class FetchAggregateDataTool extends BaseTool<TableArgs> {
     args: TableArgs,
     apiKey: string,
   ): Promise<{ content: ToolContent[] }> {
-    const baseUrl = `https://api.census.gov/data/${args.year}/${args.dataset}`
-
-    let getParams = ''
-
-    if (args.get.variables || args.get.group) {
-      if (args.get.variables) {
-        getParams = args.get.variables.join(',')
-      }
-
-      if (args.get.group) {
-        if (getParams != '') {
-          getParams += ','
-        }
-        getParams += `group(${args.get.group})`
-      }
-    }
-
-    const query = new URLSearchParams({
-      get: getParams,
-    })
-
-    if (args.for) {
-      query.append('for', args.for)
-    }
-
-    if (args.in) {
-      query.append('in', args.in)
-    }
-
-    if (args.ucgid) {
-      query.append('ucgid', args.ucgid)
-    }
-
-    if (args.predicates) {
-      for (const [key, value] of Object.entries(args.predicates)) {
-        query.append(key, value)
-      }
-    }
-
-    const descriptive = args.descriptive?.toString() ?? 'false'
-
-    query.append('descriptive', descriptive)
-    query.append('key', apiKey)
-
-    const url = `${baseUrl}?${query.toString()}`
-
     try {
-      const fetch = (await import('node-fetch')).default
-      const res = await fetch(url)
-
+      // censusFetch returns the URL with the API key already redacted so we
+      // never emit the plaintext key to logs or responses.
+      const { url, headers, rows } = await censusFetch(args, apiKey)
       console.log(`URL Attempted: ${url}`)
-
-      if (!res.ok) {
-        return this.createErrorResponse(
-          `Census API error: ${res.status} ${res.statusText}`,
-        )
-      }
-
-      const data = (await res.json()) as string[][]
-      const [headers, ...rows] = data
 
       const output = rows
         .map((row) => headers.map((h, i) => `${h}: ${row[i]}`).join(', '))
         .join('\n')
 
-      const citation = buildCitation(url)
-
       return this.createSuccessResponse(
-        `Response from ${args.dataset}:\n${output}\n${citation}`,
+        `Response from ${args.dataset}:\n${output}\n${buildCitation(url)}`,
       )
     } catch (err) {
       return this.createErrorResponse(`Fetch failed: ${(err as Error).message}`)

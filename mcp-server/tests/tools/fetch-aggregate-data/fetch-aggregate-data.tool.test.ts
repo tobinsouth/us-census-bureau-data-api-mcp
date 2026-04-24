@@ -6,6 +6,7 @@ vi.mock('node-fetch', () => ({
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { buildCitation } from '../../../src/helpers/citation'
+import { clearCensusCache } from '../../../src/services/census-api.service'
 import {
   FetchAggregateDataTool,
   toolDescription,
@@ -31,6 +32,9 @@ describe('FetchAggregateDataTool', () => {
   beforeEach(() => {
     tool = new FetchAggregateDataTool()
     mockFetch.mockClear()
+    // censusFetch holds a module-level LRU + rate budget shared across tools.
+    // Clear both so each test sees a cold fetch path.
+    clearCensusCache()
 
     process.env.CENSUS_API_KEY = 'test-api-key-12345'
   })
@@ -64,8 +68,10 @@ describe('FetchAggregateDataTool', () => {
 
       const response = await tool.toolHandler(args, process.env.CENSUS_API_KEY)
 
+      // The censusFetch service redacts the API key before returning the URL,
+      // so buildCitation should never see the plaintext key.
       expect(mockBuildCitation).toHaveBeenCalledWith(
-        `https://api.census.gov/data/2022/acs/acs1?get=group%28B01001%29&for=state%3A01&descriptive=false&key=${process.env.CENSUS_API_KEY}`,
+        `https://api.census.gov/data/2022/acs/acs1?get=group%28B01001%29&for=state%3A01&descriptive=false&key=REDACTED`,
       )
       expect(response.content[0].text).to.include(
         'Source: U.S. Census Bureau Data API',

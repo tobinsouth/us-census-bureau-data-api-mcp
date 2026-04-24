@@ -23,6 +23,12 @@ export class ListDatasetsTool extends BaseTool<object> {
   description = toolDescription
   readonly requiresApiKey = true
 
+  annotations = {
+    title: 'List Census datasets',
+    readOnlyHint: true,
+    openWorldHint: true,
+  }
+
   inputSchema: Tool['inputSchema'] = {
     type: 'object',
     properties: {},
