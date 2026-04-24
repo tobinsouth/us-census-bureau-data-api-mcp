@@ -1,155 +1,178 @@
-# U.S. Census Bureau Data API MCP
-[![License: CC0-1.0](https://img.shields.io/badge/License-CC0%201.0-lightgrey.svg)](https://github.com/uscensusbureau/us-census-bureau-data-api-mcp/blob/main/LICENSE)
-[![MCP Project Build](https://github.com/uscensusbureau/us-census-bureau-data-api-mcp/actions/workflows/build.yml/badge.svg)](https://github.com/uscensusbureau/us-census-bureau-data-api-mcp/actions/workflows/build.yml)
-[![MCP Project - Lint](https://github.com/uscensusbureau/us-census-bureau-data-api-mcp/actions/workflows/lint.yml/badge.svg)](https://github.com/uscensusbureau/us-census-bureau-data-api-mcp/actions/workflows/lint.yml)
-[![MCP Server - Tests](https://github.com/uscensusbureau/us-census-bureau-data-api-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/uscensusbureau/us-census-bureau-data-api-mcp/actions/workflows/test.yml)
-[![MCP Database - Tests](https://github.com/uscensusbureau/us-census-bureau-data-api-mcp/actions/workflows/test-db.yml/badge.svg)](https://github.com/uscensusbureau/us-census-bureau-data-api-mcp/actions/workflows/test-db.yml)
-![MCP Server - Test Coverage](https://raw.githubusercontent.com/gist/luke-keller-census/0589e2c69696f077eef7d6af818a108b/raw/badge.svg)
-![MCP Database - Test Coverage](https://raw.githubusercontent.com/gist/luke-keller-census/ae50d82d94893c2e674f7f742aea958e/raw/badge.svg)
+# U.S. Census Bureau Data API MCP — interactive fork
 
-Bringing _official_ Census Bureau statistics to AI assistants everywhere.
+> **This is an unofficial fork** of [`uscensusbureau/us-census-bureau-data-api-mcp`](https://github.com/uscensusbureau/us-census-bureau-data-api-mcp), not operated or endorsed by the U.S. Census Bureau. The hosted endpoint below is run by [@tobinsouth](https://github.com/tobinsouth) on personal infrastructure. Data comes from the official Census Data API; see the upstream repo for the authoritative version.
 
-The *U.S. Census Bureau Data API MCP* is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) server that connects AI assistants with data from the Census Data API and other official Census Bureau sources. This project is built using the [MCP Typescript SDK](https://github.com/modelcontextprotocol/typescript-sdk).
+Bringing official Census Bureau statistics to AI assistants **plus** an interactive Vega-Lite widget for maps and charts, hosted on Fly.io + Cloudflare for horizontal scaling.
 
-## Contents
-* [Getting Started](#getting-started)
-* [Using the MCP Server](#using-the-mcp-server)
-* [How the MCP Server Works](#how-the-mcp-server-works)
-* [Development](#development)
-* [MCP Server Architecture](#mcp-server-architecture)
-* [Available Methods](#available-methods)
-* [Available Tools](#available-tools)
-* [Available Prompts](#available-prompts)
-* [Helper Scripts](#helper-scripts)
-* [Additional Information](#additional-information)
+---
 
-## Getting Started
-To get started, you will need:
+## What this fork adds
 
-* A valid Census Bureau [Data API key](https://api.census.gov/data/key_signup.html)
-* Docker (i.e. Docker Desktop)
-* Node 18+
+On top of the upstream five tools (`list-datasets`, `fetch-dataset-geography`, `fetch-aggregate-data`, `resolve-geography-fips`, `search-data-tables`), this fork:
 
-## Using the MCP Server
-To use the U.S. Census Bureau Data API MCP server:
-1. Clone or download the project locally.
-2. In a terminal window, navigate to the project’s root directory and run `docker compose --profile prod run --rm census-mcp-db-init sh -c "npm run migrate:up && npm run seed"` to pull data from the Census Data API into the local database. *This is only required on first-time setup.*
-3. Configure your AI Assistant to use the MCP Server (see below).
-4. Start your AI Assistant.
+- **Replaces the Postgres metadata dependency with an embedded SQLite fixture** so the server is stateless and horizontally scalable. JS trigram port preserves `pg_trgm`-style ranking for fuzzy search.
+- **Adds a streamable HTTP transport** (`src/http.ts`) — the server runs as a regular HTTP service instead of stdio only, so it can sit behind a load balancer / CDN.
+- **Adds a `visualize-census` MCP App tool + Vega-Lite widget** — Claude authors a chart spec, the widget renders it inline in the conversation. Choropleths use `geoshape` + us-atlas TopoJSON with a lookup transform on a server-derived `__fips`; tabular charts are free-form. Hidden companion `get-topojson` tool serves boundaries to the widget only.
+- **Authless by default** (Census data is public) with optional bearer auth via `MCP_AUTH_TOKEN`.
+- **Tiered rate limit** — the Anthropic IP range (`160.79.104.0/21`, `2607:6bc0::/48`) shares a higher-capacity bucket; everyone else gets per-IP buckets.
+- **Census API LRU + 60/min budget**, with automatic API-key redaction on every returned URL.
+- **Ships production-ready** — `Dockerfile.http`, `fly.toml`, Cloudflare Rulesets-based edge rate limit. See [`DEPLOYMENT.md`](./DEPLOYMENT.md).
 
-Here is an example configuration file that includes the appropriate scripts for launching the MCP Server:
+---
+
+## Try it in Claude (hosted)
+
+Base URL (currently serving from Fly):
 
 ```
+https://census-mcp-bold-dream-9913.fly.dev/mcp
+```
+
+Custom hostname `https://census-mcp.tobinsouth.fyi/mcp` is being wired up behind Cloudflare for edge rate limiting — use whichever resolves for you.
+
+### Claude.ai (web / Claude Desktop)
+
+Settings → **Connectors** → **Add custom connector** → paste the URL above. No auth token needed. The server surfaces six model-visible tools plus the `visualize-census` widget.
+
+### Claude Code
+
+Put the following in `.mcp.json` at the root of any repo, or in `~/.claude/settings.json` under `mcpServers`:
+
+```json
 {
   "mcpServers": {
-    "mcp-census-api": {
-      "command": "bash",
-      "args": [
-        "/Path/To/Server/us-census-bureau-data-api-mcp/scripts/mcp-connect.sh"
-      ],
-      "env": {
-        "CENSUS_API_KEY": "YOUR_CENSUS_API_KEY"
-      }
+    "census": {
+      "type": "http",
+      "url": "https://census-mcp-bold-dream-9913.fly.dev/mcp"
     }
   }
 }
 ```
 
-Note that the `CENSUS_API_KEY` variable is required. This defines the `env` variable in the MCP Client and passes it to the MCP server via the `mcp-connect` script.
+Or run `/mcp` inside a Claude Code session and add it interactively.
 
-Be sure to update the path to the `us-census-bureau-data-api-mcp` directory in `args` and provide a valid `CENSUS_API_KEY`.
+### Verify
 
-### Updating the MCP Server
-When a new version of this project is released, you will need to rebuild the production environment for the latest features. From the `mcp-db/` directory, run the following:
-
-```
-npm run prod:down
-npm run prod:build
+```bash
+curl -s https://census-mcp-bold-dream-9913.fly.dev/healthz
+# → {"status":"ok","sqlite":"/app/census-metadata.sqlite","authMode":"authless","ip":"…","anthropic":false}
 ```
 
-After that, you can relaunch your MCP Client and it should connect to the server again.
+---
 
-## How the MCP Server Works
+## Example queries
 
-The U.S. Census Bureau Data API MCP server uses data from the Census Data API and other official sources to construct contextually rich data and statistics for use with AI Assistants. The Census Data API is the primary source of data but some of the API's data is pulled down to a local postgres container to enable more robust and performant search functionality. Below is an illustration of how user prompts are processed by AI Assistants and the MCP Server.
+Paste any of these into Claude after attaching the connector:
 
-![Illustration of how the MCP Server works, starting with a user prompt, processing by an AI Assistant, tool or resource calls to the U.S. Census Bureau Data API MCP server, and finally queries to the local postgres database or the Census Data API.](/us-census-burea-mcp-server-flow.jpg)
+**Sanity check**
 
-## Development
+- _"What's the median household income in Travis County, Texas, for 2022?"_ — chains `resolve-geography-fips` → `fetch-aggregate-data` (B19013 = $92,731).
+- _"Which Census table has data on language spoken at home?"_ — `search-data-tables`, returns B16005.
 
-Run `docker compose --profile dev up` from the root of the project to build the containers. This starts the MCP Database containers that runs migrations and seeds a local `postgres` database to supplement information from the Census Bureau API. It also starts the MCP Server itself.
+**Choropleth (the widget)**
 
-By default, all logging functions are disabled in the `mcp-server` to prevent `json` validation errors when interacting with the MCP server through MCP clients. To enable logging for development purposes, set `DEBUG_LOGS=true` when interacting with the server directly using the examples below, e.g. `echo '{CALL_ARGUMENTS}' docker exec -e DEBUG_LOGS=true -i -e CENSUS_API_KEY=YOUR_CENSUS_API_KEY mcp-server node dist/index.js`. 
+- _"Map median household income by Texas county for 2022."_ — triggers `visualize-census` with `mark: "geoshape"`, `geo: {level: "counties"}`. 254 counties, auto-scoped, TopoJSON fetched behind the scenes.
+- _"Make a US states choropleth of total population (B01003) using the ACS 5-year 2022."_ — full-US states map with `geo: {level: "states"}`.
 
-### Testing
+**Multi-tool chains**
 
-This project uses [Vitest](https://vitest.dev/) to test the MCP Server and MCP Database.
+- _"Compare educational attainment (bachelor's+) in Travis, Harris, and Philadelphia counties for 2022."_ — three `resolve-geography-fips` calls, one `search-data-tables`, three `fetch-aggregate-data` calls, Claude reconciles into a table.
 
-#### MCP Server Testing
+**Interactive click (widget + drill-in)**
 
-Prior to running the MCP Server tests, a valid Census Bureau [API key](https://api.census.gov/data/key_signup.html) is required. This key should be defined in the `.env` file of the `mcp-server` directory. The `sample.env` offers an example of how this `.env` file should look.
+- _"Make a Texas counties income map, and let me click a county to drill into its demographics."_ — sets `interactive.onClickSend: "Tell me about {NAME}"`; clicking a county sends that message back to the conversation.
 
-To run tests, navigate to the `mcp-server/` directory and run `npm run test`. To run ESLint, run `npm run lint` from the same directory.
+---
 
-#### MCP Database Testing
+## Tools + prompts (reference)
 
-A `.env` file needs to be created in the `mcp-db/` directory with a valid `DATABASE_URL` variable defined. The `sample.env` in the same directory includes the default value.
+Upstream tools still present, same signatures:
 
-To run tests, navigate to the `mcp-db/` directory and run `npm run test`.
+| Tool                      | What it does                                                 |
+| ------------------------- | ------------------------------------------------------------ |
+| `list-datasets`           | Catalog of all Census datasets.                              |
+| `fetch-dataset-geography` | Geography levels available for a dataset.                    |
+| `fetch-aggregate-data`    | The actual data fetch (dataset + year + `get` + `for`/`in`). |
+| `resolve-geography-fips`  | Place name → FIPS + query params.                            |
+| `search-data-tables`      | Label query → ranked table IDs.                              |
 
-## MCP Server Architecture
+New in this fork:
 
-* `mcp-server/src/` - Source code for the MCP Server.
-* `mcp-server/src/index.ts` - Starts the MCP Server and registers tools.
-* `mcp-server/src/server.ts` - Defines the `McpServer` class that handles calls to the server, e.g. how `tools/list` and `tools/calls` respond to requests
-* `mcp-server/src/tools/` - Includes tool definitions and shared classes, e.g. `BaseTool` and `ToolRegistry`, to reduce repetition and exposes the tools list to the server
-* `mcp-server/src/schema/` - Houses each tool’s schema and is used to validate schemas in tests
+| Tool               | What it does                                                                                                                                 | Visibility                                |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `visualize-census` | Render a model-authored Vega-Lite spec with Census data. Supports pre-fetched `data` or an inline `fetch`. Choropleth-aware via `geo.level`. | Model + app                               |
+| `get-topojson`     | Serves us-atlas state/county TopoJSON to the widget.                                                                                         | App-only (`_meta.ui.visibility: ['app']`) |
 
-## Available Methods
+The `population` prompt from upstream is preserved.
 
-The MCP server exposes several methods: `tools/list`, `tools/call`, `prompts/list`, and `prompts/get`.
+---
 
-## Available Tools
-This section covers tools that can be called.
+## Self-host
 
-### List Datasets
-The `list-datasets` tool is used for fetching a subset of metadata for all datasets that are available in the Census Bureau's API. \
-It requires no arguments.
+The full deploy runbook — Docker image build, Fly launch, Cloudflare DNS/WAF — lives in [`DEPLOYMENT.md`](./DEPLOYMENT.md).
 
-### Fetch Dataset Geography
-The `fetch-dataset-geography` tool is used for fetching available geography levels for filtering a given dataset. It accepts the following arguments:
-* Dataset (Required) - The identifier of the dataset, e.g. `'acs/acs1'`
-* Year (Optional) - The vintage of the dataset, e.g. `1987`
+Quick local start (SQLite, no Postgres needed):
 
-### Fetch Aggregate Data
-The `fetch-aggregate-data` tool is used for fetching  aggregate data from the Census Bureau's API. It accepts the following arguments:
-* Dataset (Required) - The identifier of the dataset, e.g. `'acs/acs1'`
-* Year (Required) - The vintage of the dataset, e.g. `1987`
-* Get (Required) - An object that is required that accepts 2 optional arguments:
-	* Variables (optional) - An array of variables for filtering responses by attributes and rows, e.g. `'NAME'`, `'B01001_001E'`
-	* Group (Optional) - A string that returns a larger collection of variables, e.g. `S0101`
-* For (Optional) - A string that restricts geography to various levels and is required in most datasets
-* In (Optional) - A string that restricts geography to smaller areas than state level
-* UCGID (Optional) - A string that restricts geography by Uniform Census Geography Identifier (UCGID), e.g. `0400000US41`
-* Predicates (Optional) - Filter options for the dataset, e.g. `'for': 'state*'`
-* Descriptive (Optional) - Adds variable labels to API response (default: `false`), e.g. `true`
+```bash
+cd mcp-server
+npm ci
+npm run build
+npm run build:sqlite -- --fixture    # creates census-metadata.sqlite from mcp-db/data/
+CENSUS_API_KEY=… SQLITE_PATH=./census-metadata.sqlite node dist/http.js
+# server at http://localhost:3801/mcp
+```
 
-### Resolve Geography FIPS Tool
-The `resolve-geography-fips` tool is used to search across all Census Bureau geographies to return a list of potential matches and the correct FIPS codes and parameters used to query data in them. This tool accepts the following arguments:
-* Geography Name (Required) - The name of the geography to search, e.g. `Philadelphia`
-* Summary Level (Optional) - The summary level to search. Accepts name or summary level code, e.g. `Place`, `160`
+### Develop
 
-## Available Prompts
-This section covers prompts that can be called. According to the [Model Context Protocol docs](https://modelcontextprotocol.io/docs/learn/server-concepts#:~:text=Pre%2Dbuilt%20instruction%20templates%20that%20tell%20the%20model%20to%20work%20with%20specific%20tools%20and%20resources.), prompts are "pre-built instruction templates that tell the model to work with specific tools and resources". This means that prompts override the default model behavior. Prompts are **not** a menu of allowed questions. They are instructions, not constraints on server capability.
+```bash
+cd mcp-server
+npm run check    # typecheck + lint + format:check
+npm test -- --run
+npm run watch    # tsc --watch
+```
 
-### Population
-This `get_population_data` prompt retrieves population statistics for US states, counties, cities, and other geographic areas. It resolves geographic names to their corresponding FIPS codes before fetching data. This prompt accepts the following argument:
-- `geography_name` (required): Name of the geographic area (state, county, city, etc.)
+CI runs the same `check` + `npm test` in `.github/workflows/`.
 
-## Helper Scripts
+---
 
-For easier command-line usage, this project includes bash helper scripts in the `scripts/dev` directory that wrap the complex Docker commands and handle the `CENSUS_API_KEY` parameter automatically.
+## Architecture
 
-## Additional Information
-For more information about the parameters above and all available predicates, review the Census Bureau's [API documentation](https://www.census.gov/data/developers/guidance/api-user-guide.Core_Concepts.html#list-tab-559651575).
+```
+  Claude client
+       │
+       ▼
+  Cloudflare (proxied DNS, edge rate limit on /mcp)
+       │
+       ▼
+  Fly proxy + machine (iad) — TRUST_PROXY=2
+       │
+       ▼
+  node dist/http.js
+    ├─ StreamableHTTPServerTransport (MCP streamable HTTP)
+    ├─ rate-limit middleware (Anthropic CIDR gets shared 600-cap bucket;
+    │  everyone else per-IP 30-cap)
+    ├─ tools/resources/prompts via MCPServer (src/server.ts)
+    │    ├─ SQLite metadata (src/services/metadata.service.ts)
+    │    ├─ Census API helper with LRU + budget + key redaction
+    │    └─ visualize-census widget — Vega-Lite inside an iframe
+    └─ /healthz echoes {ip, anthropic}
+```
 
+Key files:
+
+- `mcp-server/src/http.ts` — HTTP entrypoint, auth guard, rate-limit mount.
+- `mcp-server/src/server.ts` — `MCPServer` (tools/resources/prompts, `_meta` + `annotations` pass-through, tool visibility filter).
+- `mcp-server/src/services/metadata.service.ts` — `MetadataService` + `SqliteMetadataService`.
+- `mcp-server/src/services/census-api.service.ts` — `censusFetch()` (LRU + budget + redacted URL).
+- `mcp-server/src/middleware/rate-limit.ts` — token buckets + Anthropic CIDR detection.
+- `mcp-server/src/tools/visualize-census.tool.ts` + `src/widgets/visualize.html` — the widget.
+
+---
+
+## Credits
+
+This fork is built on [`uscensusbureau/us-census-bureau-data-api-mcp`](https://github.com/uscensusbureau/us-census-bureau-data-api-mcp); the upstream team owns the official implementation, the data contracts, the authoritative tool schemas, and the detailed documentation. See [CONTRIBUTING.md](./CONTRIBUTING.md) and the upstream README for contributor guidance and deeper tool reference.
+
+## License
+
+CC0-1.0, matching upstream.
