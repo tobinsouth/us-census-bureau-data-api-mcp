@@ -74,41 +74,70 @@ curl -s -X POST https://$HOST/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | head -c 200
 ```
 
-## Cloudflare (manual dashboard setup)
+## Cloudflare
 
-Wrangler is Workers-scoped and can't manage zone DNS, rate-limit, or WAF
-rules directly. Set these through the dashboard (or the Cloudflare API
-with a scoped token).
+Wrangler's OAuth scope is Workers-only; zone DNS and rate-limit rules
+need either a scoped API token (`CF_TOKEN`) or the dashboard.
+
+For this deploy: zone `tobinsouth.fyi` (id
+`becac57d61a855220190c9293d7b5742`), target host
+`census-mcp.tobinsouth.fyi`.
 
 ### 1. DNS
 
-In the target zone, add a **proxied** CNAME (or A/AAAA) record:
+Add a **proxied** CNAME record in the zone:
 
 | Type   | Name         | Target                                    | Proxy |
 |--------|--------------|-------------------------------------------|-------|
-| CNAME  | `census-mcp` | `census-mcp-<slug>.fly.dev`               | ✅    |
+| CNAME  | `census-mcp` | `census-mcp-bold-dream-9913.fly.dev`      | ✅    |
 
-Fly will auto-issue a TLS cert for the Fly hostname; Cloudflare will
-issue one for the custom domain. Test after DNS propagates:
+Via API (requires a token with `Zone.DNS:Edit`):
 
 ```bash
-curl -s https://census-mcp.<your-domain>/healthz
+curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records" \
+  -H "Authorization: Bearer $CF_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"CNAME","name":"census-mcp","content":"census-mcp-bold-dream-9913.fly.dev","proxied":true,"ttl":1}'
+```
+
+Fly issues the cert for `*.fly.dev`; Cloudflare terminates TLS on the
+custom hostname. After propagation:
+
+```bash
+curl -s https://census-mcp.tobinsouth.fyi/healthz
 ```
 
 ### 2. Per-IP rate limit on `/mcp`
 
-Dashboard → the zone → **Security** → **WAF** → **Rate limiting rules**.
+Deployed via the Rulesets API (free-plan tier requires `period=10s`,
+`mitigation_timeout=10s`; to match the in-app 30/min cap we use
+**5 requests / 10 seconds per IP per colo**):
 
-Create a rule with:
+```bash
+curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE/rulesets" \
+  -H "Authorization: Bearer $CF_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "census-mcp edge rate limit",
+    "kind": "zone",
+    "phase": "http_ratelimit",
+    "rules": [{
+      "description": "census-mcp /mcp: 5 req / 10s per IP",
+      "expression": "(http.host eq \"census-mcp.tobinsouth.fyi\" and starts_with(http.request.uri.path, \"/mcp\"))",
+      "action": "block",
+      "ratelimit": {
+        "characteristics": ["ip.src", "cf.colo.id"],
+        "period": 10,
+        "requests_per_period": 5,
+        "mitigation_timeout": 10
+      }
+    }]
+  }'
+```
 
-- **Match**: `hostname equals census-mcp.<your-domain>` AND
-  `URI Path equals /mcp`
-- **Characteristics**: `IP address`
-- **Rate**: `30 requests per 60 seconds` (matches the in-app per-IP cap;
-  the edge rule protects the Fly app from bursts before they hit the
-  origin)
-- **Action**: `Block` with `Custom response` → status `429`, body
-  `{"error":"rate limited at edge"}`
+Current ruleset id: `b2a178c944384ae0bc4a03c98e64d200` (rule
+`9c74ef4c10f745b39aa314a8721e5bdd`). Adjust thresholds via
+`PUT /rulesets/{id}/rules/{rule_id}`.
 
 ### 3. (Optional) WAF tag for Anthropic traffic
 
